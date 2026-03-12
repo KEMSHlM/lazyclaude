@@ -27,12 +27,14 @@ SELECTED=$($TMUX_BIN list-windows -t claude -F "#{window_name}	#{pane_current_co
     printf "claude:=%s\t%s %s\n" "$name" "$marker" "$label"
   done | \
   fzf \
+    --no-scrollbar \
+    --info=hidden \
     --delimiter='\t' \
     --with-nth=2 \
-    --header $'  Claude Sessions\n  Enter: open  ctrl-y/u/i: send 1/2/3  ctrl-x: kill\n' \
+    --header $'  Claude Sessions\n  Enter: open  1/2/3: send  ctrl-x: kill' \
     --header-first \
     --preview "while true; do $TMUX_BIN capture-pane -t {1} -p -e -S -40 2>/dev/null; sleep 0.2; done" \
-    --preview-window 'up:80%:wrap:border-bottom:follow' \
+    --preview-window 'up:80%:wrap:border-bottom:follow:noinfo' \
     --bind "1:execute-silent($TMUX_BIN send-keys -t {1} '1')" \
     --bind "2:execute-silent($TMUX_BIN send-keys -t {1} '2')" \
     --bind "3:execute-silent($TMUX_BIN send-keys -t {1} '3')" \
@@ -45,6 +47,10 @@ WINDOW=$(echo "$SELECTED" | cut -f1 | sed 's/claude:=//')
 
 if [ "${CLAUDE_SWITCH_MODE:-}" = "select" ]; then
   echo "$WINDOW"
+elif [ "${CLAUDE_SWITCH_MODE:-}" = "switch" ]; then
+  CLIENT=$(cat /tmp/tmux-claude-switch-client 2>/dev/null)
+  rm -f /tmp/tmux-claude-switch-client
+  [ -n "$CLIENT" ] && $TMUX_BIN switch-client -c "$CLIENT" -t "claude:=$WINDOW"
 else
   exec env -u TMUX $TMUX_BIN attach-session -t "claude:=$WINDOW"
 fi
