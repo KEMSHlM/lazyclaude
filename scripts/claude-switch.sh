@@ -23,13 +23,14 @@ trap _cleanup EXIT INT TERM
 FZF_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()' 2>/dev/null)
 
 if [ -n "$FZF_PORT" ]; then
-  # Send reload-preview every second; exits automatically when fzf stops listening
+  # Send reload-preview every second; exits automatically when fzf stops listening.
+  # Redirect stdin/stdout from /dev/null so the background process doesn't hold the TTY.
   (
     sleep 0.5
     while curl -s -XPOST "http://localhost:${FZF_PORT}" -d 'reload-preview' 2>/dev/null; do
       sleep 1
     done
-  ) &
+  ) </dev/null >/dev/null &
   REFRESH_PID=$!
 fi
 
