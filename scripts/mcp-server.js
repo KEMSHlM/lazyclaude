@@ -210,14 +210,19 @@ function handleMcpMessage(socket, msg) {
 
     case 'ide_connected':
       if (params?.pid) {
-        const pendingFile = '/tmp/tmux-claude-next-remote-window';
+        const pid = params.pid;
+        const localWindow = findTmuxWindowForPid(pid)?.window ?? null;
         let remoteWindow = null;
-        try {
-          remoteWindow = fs.readFileSync(pendingFile, 'utf8').trim() || null;
-          if (remoteWindow) fs.unlinkSync(pendingFile);
-        } catch { /* no pending remote window */ }
-        socketState.set(socket, { pid: params.pid, window: remoteWindow });
-        console.log(`[mcp] ide_connected pid=${params.pid}${remoteWindow ? ` remote-window=${remoteWindow}` : ''}`);
+        // Only consume pending remote window if this PID has no local tmux window
+        if (!localWindow) {
+          const pendingFile = '/tmp/tmux-claude-next-remote-window';
+          try {
+            remoteWindow = fs.readFileSync(pendingFile, 'utf8').trim() || null;
+            if (remoteWindow) fs.unlinkSync(pendingFile);
+          } catch { /* no pending remote window */ }
+        }
+        socketState.set(socket, { pid, window: remoteWindow });
+        console.log(`[mcp] ide_connected pid=${pid}${localWindow ? ` local-window=${localWindow}` : ''}${remoteWindow ? ` remote-window=${remoteWindow}` : ''}`);
       }
       break;
 
