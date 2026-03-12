@@ -29,7 +29,6 @@ SELECTED=$($TMUX_BIN list-windows -t claude -F "#{window_name}	#{pane_current_co
   fzf \
     --delimiter='\t' \
     --with-nth=2 \
-    --padding 1,2 \
     --header $'  Claude Sessions\n  Enter: open  ctrl-y/u/i: send 1/2/3  ctrl-x: kill\n' \
     --header-first \
     --preview "while true; do $TMUX_BIN capture-pane -t {1} -p -e -S -40 2>/dev/null; sleep 0.2; done" \
