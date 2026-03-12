@@ -12,8 +12,6 @@ SESSION_NAME="$5"
 PANE_TTY="${6##/dev/}"  # strip /dev/ prefix, e.g. ttys007
 FLAGS="${7:-}"          # e.g. --resume
 
-echo "[launch] PANE_CMD=$PANE_CMD SESSION=$SESSION_NAME LOCAL_PATH=$LOCAL_PATH OSC=$OSC_PATH" >> /tmp/tmux-claude-launch-debug.log
-
 # Resolve local claude binary
 CLAUDE_BIN=$(command -v claude 2>/dev/null)
 CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
@@ -99,8 +97,14 @@ if [ "$PANE_CMD" = "ssh" ] && [ "$SESSION_NAME" != "claude" ]; then
 
   tmux set-option -t "claude" automatic-rename off 2>/dev/null
 
-  tmux list-windows -t "claude" -F "#{window_name}" | grep -qF "$WINDOW" || \
+  if tmux list-windows -t "claude" -F "#{window_name}" | grep -qF "$WINDOW"; then
+    PANE_DEAD=$(tmux list-panes -t "claude:=$WINDOW" -F "#{pane_dead}" 2>/dev/null)
+    if [ "$PANE_DEAD" = "1" ]; then
+      tmux respawn-window -t "claude:=$WINDOW" -k "$REMOTE_CMD"
+    fi
+  else
     tmux new-window -t "claude" -n "$WINDOW" "$REMOTE_CMD"
+  fi
 
   tmux display-popup -w80% -h80% -E "$SCRIPT_DIR/claude-popup.sh $WINDOW"
 
@@ -119,8 +123,14 @@ else
 
     tmux set-option -t "claude" automatic-rename off 2>/dev/null
 
-    tmux list-windows -t "claude" -F "#{window_name}" | grep -qF "$WINDOW" || \
+    if tmux list-windows -t "claude" -F "#{window_name}" | grep -qF "$WINDOW"; then
+      PANE_DEAD=$(tmux list-panes -t "claude:=$WINDOW" -F "#{pane_dead}" 2>/dev/null)
+      if [ "$PANE_DEAD" = "1" ]; then
+        tmux respawn-window -t "claude:=$WINDOW" -k "$CLAUDE_CMD"
+      fi
+    else
       tmux new-window -t "claude" -n "$WINDOW" "$CLAUDE_CMD"
+    fi
 
     tmux display-popup -w80% -h80% -E "$SCRIPT_DIR/claude-popup.sh $WINDOW"
   fi

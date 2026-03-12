@@ -9,8 +9,8 @@ _tmux_claude_mcp_start() {
   local script="${plugin_dir}/scripts/mcp-server.js"
   local pidfile="/tmp/tmux-claude-mcp.pid"
 
-  # Already running?
-  if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+  # Already running? (pgrep is race-safe enough for interactive shells)
+  if pgrep -qf "mcp-server.js" 2>/dev/null; then
     return
   fi
 

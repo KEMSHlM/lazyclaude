@@ -27,7 +27,7 @@ tmux bind-key "$switch_key" if -F '#{==:#{session_name},claude}' \
 
 # Suppress specified keys inside claude popup, preserving original binding elsewhere
 for key in $suppress_keys; do
-  original=$(tmux list-keys -T prefix 2>/dev/null | awk -v k="$key" '$3 == k {$1=$2=$3=""; sub(/^[[:space:]]+/,""); print}')
+  original=$(tmux list-keys -T prefix 2>/dev/null | awk -v k="$key" '$4 == k {$1=$2=$3=$4=""; sub(/^[[:space:]]+/,""); print}')
   if [ -n "$original" ]; then
     tmux bind-key "$key" if -F '#{==:#{session_name},claude}' '' "$original"
   else
