@@ -88,10 +88,13 @@ if [ "$PANE_CMD" = "ssh" ] && [ "$SESSION_NAME" != "claude" ]; then
   if [ -f "/tmp/tmux-claude-mcp.port" ] && [ -f "/tmp/tmux-claude-mcp.token" ]; then
     MCP_PORT=$(cat /tmp/tmux-claude-mcp.port)
     MCP_TOKEN=$(cat /tmp/tmux-claude-mcp.token)
-    # Create lock file on remote so Claude can discover the MCP server via tunnel
-    LOCK_B64=$(printf '{"pid":1,"workspaceFolders":[],"ideName":"tmux-claude","transport":"ws","authToken":"%s"}' "$MCP_TOKEN" | base64 | tr -d '\n')
+    # Create lock file on remote so Claude can discover the MCP server via tunnel.
+    # Use split base64 to embed $$ (remote zsh PID) without local shell expansion.
+    # $$ inside SSH single-quoted section survives local sh, expands on remote zsh.
+    LOCK_PREFIX_B64=$(printf '{"pid":' | base64 | tr -d '\n')
+    LOCK_SUFFIX_B64=$(printf ',"workspaceFolders":[],"ideName":"tmux-claude","transport":"ws","authToken":"%s"}' "$MCP_TOKEN" | base64 | tr -d '\n')
     MCP_TUNNEL_FLAGS="-R ${MCP_PORT}:127.0.0.1:${MCP_PORT}"
-    MCP_NOTIFY_SETUP="mkdir -p ~/.claude/ide && echo ${LOCK_B64} | base64 -d > ~/.claude/ide/${MCP_PORT}.lock && "
+    MCP_NOTIFY_SETUP="mkdir -p ~/.claude/ide && (echo ${LOCK_PREFIX_B64} | base64 -d; printf %d \$\$; echo ${LOCK_SUFFIX_B64} | base64 -d) > ~/.claude/ide/${MCP_PORT}.lock && "
     MCP_NOTIFY_CLEANUP="; rm -f ~/.claude/ide/${MCP_PORT}.lock"
   fi
 

@@ -249,6 +249,7 @@ function handleMcpMessage(socket, msg) {
 const connections = new Set();
 
 function handleConnection(socket) {
+  console.log(`[mcp] tcp connection from ${socket.remoteAddress}:${socket.remotePort}`);
   socketState.set(socket, { pid: null });
   let upgraded = false;
   let buf = Buffer.alloc(0);
@@ -270,6 +271,7 @@ function handleConnection(socket) {
       }
 
       if (headers['x-claude-code-ide-authorization'] !== AUTH_TOKEN) {
+        console.warn(`[mcp] auth failed: got="${headers['x-claude-code-ide-authorization']}" expected="${AUTH_TOKEN}"`);
         sendHttpError(socket, 401, 'Unauthorized');
         return;
       }
