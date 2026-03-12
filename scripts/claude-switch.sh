@@ -10,32 +10,6 @@ fi
 
 CURRENT_WINDOW=$($TMUX_BIN display-message -p -t claude '#{window_name}' 2>/dev/null)
 
-# --- Live preview refresh via fzf --listen ---
-
-REFRESH_PID=
-FZF_PORT=
-
-_cleanup() {
-  [ -n "$REFRESH_PID" ] && kill "$REFRESH_PID" 2>/dev/null
-}
-trap _cleanup EXIT INT TERM
-
-FZF_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()' 2>/dev/null)
-
-if [ -n "$FZF_PORT" ]; then
-  # Send reload-preview every second; exits automatically when fzf stops listening.
-  # Redirect stdin/stdout from /dev/null so the background process doesn't hold the TTY.
-  (
-    sleep 0.5
-    while curl -s -XPOST "http://localhost:${FZF_PORT}" -d 'reload-preview' 2>/dev/null; do
-      sleep 1
-    done
-  ) </dev/null >/dev/null &
-  REFRESH_PID=$!
-fi
-
-# --- fzf session list ---
-
 SELECTED=$($TMUX_BIN list-windows -t claude -F "#{window_name}	#{pane_current_command}	#{pane_current_path}	#{pane_path}" | \
   while IFS=$'\t' read name cmd dirpath oscpath; do
     if [ "$cmd" = "ssh" ]; then
@@ -53,7 +27,6 @@ SELECTED=$($TMUX_BIN list-windows -t claude -F "#{window_name}	#{pane_current_co
     printf "claude:=%s\t%s %s\n" "$name" "$marker" "$label"
   done | \
   fzf \
-    ${FZF_PORT:+--listen $FZF_PORT} \
     --delimiter='\t' \
     --with-nth=2 \
     --border rounded \
@@ -62,6 +35,7 @@ SELECTED=$($TMUX_BIN list-windows -t claude -F "#{window_name}	#{pane_current_co
     --header-first \
     --preview "$TMUX_BIN capture-pane -t {1} -p -e -S - 2>/dev/null | tail -50" \
     --preview-window 'right:60%:wrap:border-left' \
+    --bind 'focus:reload-preview' \
     --bind "1:execute-silent($TMUX_BIN send-keys -t {1} '1' Enter)" \
     --bind "2:execute-silent($TMUX_BIN send-keys -t {1} '2' Enter)" \
     --bind "3:execute-silent($TMUX_BIN send-keys -t {1} '3' Enter)" \
