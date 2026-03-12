@@ -34,9 +34,9 @@ SELECTED=$($TMUX_BIN list-windows -t claude -F "#{window_name}	#{pane_current_co
     --header-first \
     --preview "while true; do $TMUX_BIN capture-pane -t {1} -p -e -S -40 2>/dev/null; sleep 0.2; done" \
     --preview-window 'up:80%:wrap:border-bottom:follow' \
-    --bind "ctrl-y:execute-silent($TMUX_BIN send-keys -t {1} '1')" \
-    --bind "ctrl-u:execute-silent($TMUX_BIN send-keys -t {1} '2')" \
-    --bind "ctrl-i:execute-silent($TMUX_BIN send-keys -t {1} '3')" \
+    --bind "1:execute-silent($TMUX_BIN send-keys -t {1} '1')" \
+    --bind "2:execute-silent($TMUX_BIN send-keys -t {1} '2')" \
+    --bind "3:execute-silent($TMUX_BIN send-keys -t {1} '3')" \
     --bind "ctrl-x:execute-silent($TMUX_BIN kill-window -t {1})+abort")
 
 [ -z "$SELECTED" ] && exit 0
