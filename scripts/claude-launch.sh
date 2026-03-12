@@ -70,11 +70,24 @@ if [ "$PANE_CMD" = "ssh" ] && [ "$SESSION_NAME" != "claude" ]; then
 
   WINDOW="claude-$(echo "${SSH_HOST}${REMOTE_DIR}" | md5sum | cut -c1-8)"
 
+  # Setup reverse tunnel if local MCP server is running
+  MCP_TUNNEL_FLAGS=""
+  MCP_NOTIFY_SETUP=""
+  MCP_NOTIFY_CLEANUP=""
+  if [ -f "/tmp/tmux-claude-mcp.port" ] && [ -f "/tmp/tmux-claude-mcp.token" ]; then
+    MCP_PORT=$(cat /tmp/tmux-claude-mcp.port)
+    MCP_TOKEN=$(cat /tmp/tmux-claude-mcp.token)
+    NOTIFY_JSON="{\\\"port\\\":$MCP_PORT,\\\"token\\\":\\\"$MCP_TOKEN\\\",\\\"window\\\":\\\"$WINDOW\\\"}"
+    MCP_TUNNEL_FLAGS="-R ${MCP_PORT}:127.0.0.1:${MCP_PORT}"
+    MCP_NOTIFY_SETUP="echo \\\"$NOTIFY_JSON\\\" > /tmp/tmux-claude-remote-notify.json && "
+    MCP_NOTIFY_CLEANUP=" && rm -f /tmp/tmux-claude-remote-notify.json; rm -f /tmp/tmux-claude-remote-notify.json"
+  fi
+
   # Use login shell on remote so PATH (~/.profile, ~/.zprofile) is loaded
   if [ -n "$REMOTE_DIR" ]; then
-    REMOTE_CMD="ssh -t '$SSH_HOST' 'zsh -lic \"cd \\\"$REMOTE_DIR\\\" && claude $FLAGS\"'"
+    REMOTE_CMD="ssh -t $MCP_TUNNEL_FLAGS '$SSH_HOST' 'zsh -lic \"${MCP_NOTIFY_SETUP}cd \\\"$REMOTE_DIR\\\" && claude $FLAGS${MCP_NOTIFY_CLEANUP}\"'"
   else
-    REMOTE_CMD="ssh -t '$SSH_HOST' 'zsh -lic \"claude $FLAGS\"'"
+    REMOTE_CMD="ssh -t $MCP_TUNNEL_FLAGS '$SSH_HOST' 'zsh -lic \"${MCP_NOTIFY_SETUP}claude $FLAGS${MCP_NOTIFY_CLEANUP}\"'"
   fi
 
   if ! tmux has-session -t "claude" 2>/dev/null; then
