@@ -499,7 +499,6 @@ function handleMcpMessage(socket, msg) {
           try {
             const client = findActiveClient();
             const diffScript = path.join(__dirname, 'claude-diff.js');
-            const encoded = Buffer.from(newContents, 'utf8').toString('base64');
             if (client) {
               // ターミナルサイズを取得してポップアップサイズを動的に決定
               const dimResult = spawnSync('tmux', [
@@ -507,11 +506,25 @@ function handleMcpMessage(socket, msg) {
               ], { encoding: 'utf8' });
               const [termW, termH] = (dimResult.stdout.trim().split(' ')).map(Number);
 
-              // diff の行数と最長行からサイズを推定
-              let oldLines = [];
-              try { oldLines = fs.readFileSync(oldPath, 'utf8').split('\n'); } catch (e) {
-                console.warn(`[mcp] cannot read old file for size estimate: ${e.message}`);
+              // ローカルにファイルがない場合 (remote SSH) は pendingToolInfo から旧内容を再構築
+              const oldFileAccessible = (() => { try { fs.accessSync(oldPath); return true; } catch { return false; } })();
+              let oldContent = null;
+              if (!oldFileAccessible) {
+                const info = pendingToolInfo.get(window);
+                if (info?.tool_name === 'Edit' && info.tool_input?.old_string != null && info.tool_input?.new_string != null) {
+                  const oldStr = info.tool_input.old_string;
+                  const newStr = info.tool_input.new_string;
+                  oldContent = info.tool_input.replace_all
+                    ? newContents.replaceAll(newStr, oldStr)
+                    : newContents.replace(newStr, oldStr);
+                  console.log(`[mcp] openDiff reconstructed old content from pendingToolInfo (${oldContent.split('\n').length} lines)`);
+                }
+              } else {
+                try { oldContent = fs.readFileSync(oldPath, 'utf8'); } catch { /* ok */ }
               }
+
+              // diff の行数と最長行からサイズを推定
+              const oldLines = oldContent ? oldContent.split('\n') : [];
               const newLines = newContents.split('\n');
               const diffLineCount = Math.abs(newLines.length - oldLines.length) + Math.min(newLines.length, oldLines.length);
               const maxLineLen = Math.max(
@@ -523,11 +536,19 @@ function handleMcpMessage(socket, msg) {
               const wPct = termW > 0 ? Math.min(95, Math.max(70, Math.round((maxLineLen + 12) / termW * 100))) : 90;
               const hPct = termH > 0 ? Math.min(95, Math.max(50, Math.round((diffLineCount + 8) / termH * 100))) : 80;
 
-              const tmpNewWs = `/tmp/tmux-claude-diff-${Date.now()}.tmp`;
+              const ts = Date.now();
+              const tmpNewWs = `/tmp/tmux-claude-diff-${ts}.tmp`;
               fs.writeFileSync(tmpNewWs, newContents, 'utf8');
+              let tmpOldWs = null;
+              if (!oldFileAccessible && oldContent) {
+                tmpOldWs = `/tmp/tmux-claude-diff-old-${ts}.tmp`;
+                fs.writeFileSync(tmpOldWs, oldContent, 'utf8');
+              }
+              const diffArgs = [shellQuote(oldPath), shellQuote(window), shellQuote(tmpNewWs)];
+              if (tmpOldWs) diffArgs.push(shellQuote(tmpOldWs));
               spawnSync('tmux', [
                 'display-popup', '-c', client, `-w${wPct}%`, `-h${hPct}%`, '-E',
-                `node ${shellQuote(diffScript)} ${shellQuote(oldPath)} ${shellQuote(window)} ${shellQuote(tmpNewWs)}`,
+                `node ${shellQuote(diffScript)} ${diffArgs.join(' ')}`,
               ]);
             }
           } catch (e) {
