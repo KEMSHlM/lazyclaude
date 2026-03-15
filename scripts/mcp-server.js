@@ -172,25 +172,46 @@ function getNotifyType() {
   } catch { return 'popup'; }
 }
 
+// Returns the user's choice ('1'|'2'|'3') after the popup closes, or null for menu path.
 function triggerPopupForWindow(window) {
   const client = findActiveClient();
-  if (!client) { console.warn('[mcp] no active client for popup'); return; }
+  if (!client) { console.warn('[mcp] no active client for popup'); return null; }
 
-  const popupScript = path.join(__dirname, 'claude-popup.sh');
-  const popupCmd = window ? `${shellQuote(popupScript)} ${shellQuote(window)}` : shellQuote(popupScript);
   const type = getNotifyType();
   console.log(`[mcp] popup type=${type} window=${window ?? '?'} client=${client}`);
 
   if (type === 'menu') {
+    const popupScript = path.join(__dirname, 'claude-popup.sh');
+    const popupCmd = window ? `${shellQuote(popupScript)} ${shellQuote(window)}` : shellQuote(popupScript);
     spawnSync('tmux', [
       'display-menu', '-c', client,
       '-T', 'Claude: permission required',
       'Open Claude', 'o', `display-popup -c ${shellQuote(client)} -w90% -h80% -E ${popupCmd}`,
       'Dismiss',     'd', '',
     ]);
-  } else {
-    spawnSync('tmux', ['display-popup', '-c', client, '-w90%', '-h80%', '-E', popupCmd]);
+    return null;
   }
+
+  // popup path: show tool confirmation UI, then read CHOICE_FILE
+  const toolPopupScript = path.join(__dirname, 'claude-tool-popup.js');
+  spawnSync('tmux', [
+    'display-popup', '-c', client, '-w90%', '-h80%', '-E',
+    `node ${shellQuote(toolPopupScript)} ${shellQuote(window ?? '')}`,
+  ]);
+
+  if (window) {
+    const safeWindow = window.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const choiceFile = `/tmp/tmux-claude-tool-choice-${safeWindow}.txt`;
+    try {
+      const c = fs.readFileSync(choiceFile, 'utf8').trim();
+      fs.unlinkSync(choiceFile);
+      if (['1', '2', '3'].includes(c)) {
+        console.log(`[mcp] tool popup choice=${c} window=${window}`);
+        return c;
+      }
+    } catch { /* no choice file */ }
+  }
+  return null;
 }
 
 function triggerPopup(socket) {
@@ -369,12 +390,20 @@ function handleConnection(socket) {
                       socket.end('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
                       setTimeout(() => {
                         // 1=allow once, 2=allow always, 3=deny
-                        console.log(`[mcp] send-keys choice=${pendingChoice} to ${window}`);
+                        console.log(`[mcp] send-keys diff-choice=${pendingChoice} to ${window}`);
                         spawnSync('tmux', ['send-keys', '-t', `claude:=${window}`, pendingChoice]);
                       }, 50);
                       return;
                     } else {
-                      triggerPopupForWindow(window);
+                      const toolChoice = triggerPopupForWindow(window);
+                      if (toolChoice) {
+                        socket.end('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
+                        setTimeout(() => {
+                          console.log(`[mcp] send-keys tool-choice=${toolChoice} to ${window}`);
+                          spawnSync('tmux', ['send-keys', '-t', `claude:=${window}`, toolChoice]);
+                        }, 50);
+                        return;
+                      }
                     }
                     break;
                   }
