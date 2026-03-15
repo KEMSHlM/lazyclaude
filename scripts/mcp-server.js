@@ -169,19 +169,19 @@ function triggerPopupForWindow(window) {
   if (!client) { console.warn('[mcp] no active client for popup'); return; }
 
   const popupScript = path.join(__dirname, 'claude-popup.sh');
-  const popupCmd = window ? `${popupScript} ${window}` : popupScript;
+  const popupCmd = window ? `${popupScript} ${JSON.stringify(window)}` : popupScript;
   const type = getNotifyType();
   console.log(`[mcp] popup type=${type} window=${window ?? '?'} client=${client}`);
 
   if (type === 'menu') {
     spawnSync('tmux', [
       'display-menu', '-c', client,
-      '-T', 'Claude: file written',
-      'Open Claude', 'o', `display-popup -c ${client} -w80% -h80% -E '${popupCmd}'`,
+      '-T', 'Claude: permission required',
+      'Open Claude', 'o', `display-popup -c ${client} -w90% -h80% -E '${popupCmd}'`,
       'Dismiss',     'd', '',
     ]);
   } else {
-    spawnSync('tmux', ['display-popup', '-c', client, '-w80%', '-h80%', '-E', popupCmd]);
+    spawnSync('tmux', ['display-popup', '-c', client, '-w90%', '-h80%', '-E', popupCmd]);
   }
 }
 
