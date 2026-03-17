@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -33,8 +34,9 @@ func validateEnvKey(k string) error {
 
 // ExecClient implements Client by executing tmux commands.
 type ExecClient struct {
-	tmuxBin string
-	socket  string // tmux -L socket name (empty = default server)
+	tmuxBin  string
+	socket   string   // tmux -L socket name (empty = default server)
+	debugLog *os.File // optional debug log file
 }
 
 // NewExecClient creates an ExecClient using the default tmux server.
@@ -43,9 +45,24 @@ func NewExecClient() *ExecClient {
 }
 
 // NewExecClientWithSocket creates an ExecClient using a dedicated tmux socket.
-// Sessions on this socket are invisible to the user's default `tmux ls`.
 func NewExecClientWithSocket(socket string) *ExecClient {
 	return &ExecClient{tmuxBin: "tmux", socket: socket}
+}
+
+// SetDebugLog enables command logging to a file.
+func (c *ExecClient) SetDebugLog(f *os.File) {
+	c.debugLog = f
+}
+
+func (c *ExecClient) logCmd(prefix string, args []string, output string, err error) {
+	if c.debugLog == nil {
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(c.debugLog, "%s: tmux %s → ERR: %v (out: %s)\n", prefix, strings.Join(args, " "), err, strings.TrimSpace(output))
+	} else {
+		fmt.Fprintf(c.debugLog, "%s: tmux %s → OK (out: %s)\n", prefix, strings.Join(args, " "), strings.TrimSpace(output))
+	}
 }
 
 // Socket returns the configured socket name (empty = default).
@@ -64,17 +81,25 @@ func (c *ExecClient) run(ctx context.Context, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.tmuxBin, c.prependSocket(args)...)
+	fullArgs := c.prependSocket(args)
+	cmd := exec.CommandContext(ctx, c.tmuxBin, fullArgs...)
+
+	// Use Output() (stdout only) — CombinedOutput() mixes stderr into stdout
+	// which corrupts parseWindows/parsePanes parsing.
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
+
+	c.logCmd("run", fullArgs, string(out), err)
 	if err != nil {
-		return "", fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
+		return "", fmt.Errorf("tmux %s: %w (stderr: %s)", strings.Join(fullArgs, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 func (c *ExecClient) ListClients(ctx context.Context) ([]ClientInfo, error) {
 	out, err := c.run(ctx, "list-clients", "-F",
-		"#{client_name}\t#{client_session}\t#{client_width}\t#{client_height}\t#{client_activity}")
+		"#{client_name}|||#{client_session}|||#{client_width}|||#{client_height}|||#{client_activity}")
 	if err != nil {
 		return nil, err
 	}
@@ -146,13 +171,16 @@ func (c *ExecClient) NewSession(ctx context.Context, opts NewSessionOpts) error 
 	ctx2, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx2, c.tmuxBin, c.prependSocket(args)...)
-	return cmd.Run()
+	fullArgs := c.prependSocket(args)
+	cmd := exec.CommandContext(ctx2, c.tmuxBin, fullArgs...)
+	out, err := cmd.CombinedOutput()
+	c.logCmd("NewSession", fullArgs, string(out), err)
+	return err
 }
 
 func (c *ExecClient) ListWindows(ctx context.Context, session string) ([]WindowInfo, error) {
 	out, err := c.run(ctx, "list-windows", "-t", session, "-F",
-		"#{window_id}\t#{window_index}\t#{window_name}\t#{session_name}\t#{window_active}")
+		"#{window_id}|||#{window_index}|||#{window_name}|||#{session_name}|||#{window_active}")
 	if err != nil {
 		return nil, err
 	}
@@ -180,8 +208,11 @@ func (c *ExecClient) NewWindow(ctx context.Context, opts NewWindowOpts) error {
 	ctx2, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx2, c.tmuxBin, c.prependSocket(args)...)
-	return cmd.Run()
+	fullArgs := c.prependSocket(args)
+	cmd := exec.CommandContext(ctx2, c.tmuxBin, fullArgs...)
+	out, err := cmd.CombinedOutput()
+	c.logCmd("NewWindow", fullArgs, string(out), err)
+	return err
 }
 
 func (c *ExecClient) RespawnPane(ctx context.Context, target, command string) error {
@@ -195,7 +226,7 @@ func (c *ExecClient) KillWindow(ctx context.Context, target string) error {
 }
 
 func (c *ExecClient) ListPanes(ctx context.Context, session string) ([]PaneInfo, error) {
-	args := []string{"list-panes", "-F", "#{pane_id}\t#{window_id}\t#{pane_pid}\t#{pane_dead}"}
+	args := []string{"list-panes", "-F", "#{pane_id}|||#{window_id}|||#{pane_pid}|||#{pane_dead}"}
 	if session != "" {
 		args = append(args, "-t", session)
 	} else {
@@ -261,7 +292,7 @@ func parseClients(out string) []ClientInfo {
 	}
 	var clients []ClientInfo
 	for _, line := range strings.Split(out, "\n") {
-		parts := strings.SplitN(line, "\t", 5)
+		parts := strings.SplitN(line, "|||", 5)
 		if len(parts) < 5 {
 			continue
 		}
@@ -285,7 +316,7 @@ func parseWindows(out string) []WindowInfo {
 	}
 	var windows []WindowInfo
 	for _, line := range strings.Split(out, "\n") {
-		parts := strings.SplitN(line, "\t", 5)
+		parts := strings.SplitN(line, "|||", 5)
 		if len(parts) < 5 {
 			continue
 		}
@@ -307,7 +338,7 @@ func parsePanes(out string) []PaneInfo {
 	}
 	var panes []PaneInfo
 	for _, line := range strings.Split(out, "\n") {
-		parts := strings.SplitN(line, "\t", 4)
+		parts := strings.SplitN(line, "|||", 4)
 		if len(parts) < 4 {
 			continue
 		}

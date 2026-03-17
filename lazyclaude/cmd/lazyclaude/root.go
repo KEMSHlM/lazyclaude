@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
@@ -18,6 +19,7 @@ import (
 
 func newRootCmd() *cobra.Command {
 	var debug bool
+	var logFile string
 
 	cmd := &cobra.Command{
 		Use:     "lazyclaude",
@@ -25,15 +27,32 @@ func newRootCmd() *cobra.Command {
 		Long:    "lazyclaude is a terminal UI for managing Claude Code sessions, inspired by lazygit.",
 		Version: fmt.Sprintf("%s (%s)", version, commit),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Logger: --debug writes to stderr (gocui uses stdout)
-			logLevel := slog.LevelError
-			if debug {
-				logLevel = slog.LevelDebug
-			}
-			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
-
+			var logger *slog.Logger
 			paths := config.DefaultPaths()
 			tmuxClient := tmux.NewExecClientWithSocket("lazyclaude")
+
+			if debug {
+				dest := logFile
+				if dest == "" {
+					dest = "/tmp/lazyclaude-debug.log"
+				}
+				f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+				if err != nil {
+					return fmt.Errorf("open log file: %w", err)
+				}
+				defer f.Close()
+				logger = slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug}))
+				logger.Info("lazyclaude.start", "version", version, "logFile", dest)
+
+				cmdLogPath := strings.TrimSuffix(dest, ".log") + "-tmux-cmds.log"
+				cmdLogFile, err := os.OpenFile(cmdLogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "warning: open tmux cmd log: %v\n", err)
+				} else {
+					defer cmdLogFile.Close()
+					tmuxClient.SetDebugLog(cmdLogFile)
+				}
+			}
 
 			store := session.NewStore(paths.StateFile())
 			mgr := session.NewManager(store, tmuxClient, paths, logger)
@@ -65,7 +84,8 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&debug, "debug", false, "enable debug logging to stderr")
+	cmd.Flags().BoolVar(&debug, "debug", false, "enable debug logging")
+	cmd.Flags().StringVar(&logFile, "log-file", "/tmp/lazyclaude-debug.log", "log file path (used with --debug)")
 
 	cmd.AddCommand(newServerCmd())
 	cmd.AddCommand(newDiffCmd())

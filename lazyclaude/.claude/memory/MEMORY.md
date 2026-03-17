@@ -3,3 +3,4 @@
 ## Feedback
 
 - [follow-dev-plan](./feedback_follow_dev_plan.md) — 開発計画の順序に従って実装する
+- [go-review-before-commit](./feedback_go_review_before_commit.md) — コミット前に必ず /go-review を実行する

@@ -63,6 +63,7 @@ func (m *Manager) Sync(ctx context.Context) error {
 		m.log.Warn("sync.hasSession.error", "err", err)
 		return fmt.Errorf("check session: %w", err)
 	}
+	m.log.Debug("sync.hasSession", "exists", exists)
 	if !exists {
 		m.log.Debug("sync.noSession", "action", "markAllOrphan", "count", len(m.store.All()))
 		m.store.MarkAllStatus(StatusOrphan)
@@ -77,6 +78,7 @@ func (m *Manager) Sync(ctx context.Context) error {
 
 	panes, err := m.tmux.ListPanes(ctx, tmuxSessionName)
 	if err != nil {
+		m.log.Warn("sync.listPanes.error", "err", err)
 		return fmt.Errorf("list panes: %w", err)
 	}
 
@@ -155,6 +157,7 @@ func (m *Manager) Create(ctx context.Context, dirPath, host string) (*Session, e
 
 	claudeCmd := m.buildClaudeCommand(sess)
 	windowName := sess.WindowName()
+	m.log.Debug("create.tmux", "exists", exists, "window", windowName, "cmd", claudeCmd)
 
 	env := claudeEnv()
 
@@ -284,6 +287,7 @@ func cleanSessionCommands() [][]string {
 		{"set-option", "status", "off"},
 		{"set-option", "prefix", "None"},
 		{"set-option", "-w", "automatic-rename", "off"},
+		{"set-option", "-w", "remain-on-exit", "on"},
 		{"unbind-key", "-a", "-T", "prefix"},
 		{"unbind-key", "-a", "-T", "root"},
 		{"unbind-key", "-a", "-T", "copy-mode"},
