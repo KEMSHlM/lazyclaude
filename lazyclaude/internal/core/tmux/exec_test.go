@@ -21,14 +21,14 @@ func TestParseClients(t *testing.T) {
 		},
 		{
 			name: "single client",
-			in:   "/dev/ttys001|||main|||200|||50|||1710000000",
+			in:   "/dev/ttys001\tmain\t200\t50\t1710000000",
 			want: []ClientInfo{
 				{Name: "/dev/ttys001", Session: "main", Width: 200, Height: 50, Activity: 1710000000},
 			},
 		},
 		{
 			name: "multiple clients",
-			in:   "/dev/ttys001|||main|||200|||50|||100\n/dev/ttys002|||claude|||180|||40|||200",
+			in:   "/dev/ttys001\tmain\t200\t50\t100\n/dev/ttys002\tclaude\t180\t40\t200",
 			want: []ClientInfo{
 				{Name: "/dev/ttys001", Session: "main", Width: 200, Height: 50, Activity: 100},
 				{Name: "/dev/ttys002", Session: "claude", Width: 180, Height: 40, Activity: 200},
@@ -36,7 +36,7 @@ func TestParseClients(t *testing.T) {
 		},
 		{
 			name: "malformed line",
-			in:   "bad|||data",
+			in:   "bad\tdata",
 			want: nil,
 		},
 	}
@@ -64,14 +64,14 @@ func TestParseWindows(t *testing.T) {
 		},
 		{
 			name: "single window",
-			in:   "@1|||0|||lc-abc12345|||claude|||1",
+			in:   "@1\t0\tlc-abc12345\tclaude\t1",
 			want: []WindowInfo{
 				{ID: "@1", Index: 0, Name: "lc-abc12345", Session: "claude", Active: true},
 			},
 		},
 		{
 			name: "multiple windows",
-			in:   "@1|||0|||lc-abc|||claude|||1\n@2|||1|||lc-def|||claude|||0",
+			in:   "@1\t0\tlc-abc\tclaude\t1\n@2\t1\tlc-def\tclaude\t0",
 			want: []WindowInfo{
 				{ID: "@1", Index: 0, Name: "lc-abc", Session: "claude", Active: true},
 				{ID: "@2", Index: 1, Name: "lc-def", Session: "claude", Active: false},
@@ -102,21 +102,21 @@ func TestParsePanes(t *testing.T) {
 		},
 		{
 			name: "alive pane",
-			in:   "%1|||@1|||12345|||0",
+			in:   "%1\t@1\t12345\t0",
 			want: []PaneInfo{
 				{ID: "%1", Window: "@1", PID: 12345, Dead: false},
 			},
 		},
 		{
 			name: "dead pane",
-			in:   "%2|||@1|||0|||1",
+			in:   "%2\t@1\t0\t1",
 			want: []PaneInfo{
 				{ID: "%2", Window: "@1", PID: 0, Dead: true},
 			},
 		},
 		{
 			name: "multiple panes",
-			in:   "%1|||@1|||1001|||0\n%2|||@2|||1002|||0\n%3|||@2|||0|||1",
+			in:   "%1\t@1\t1001\t0\n%2\t@2\t1002\t0\n%3\t@2\t0\t1",
 			want: []PaneInfo{
 				{ID: "%1", Window: "@1", PID: 1001, Dead: false},
 				{ID: "%2", Window: "@2", PID: 1002, Dead: false},

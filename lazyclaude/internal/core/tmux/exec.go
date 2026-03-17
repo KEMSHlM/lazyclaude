@@ -100,7 +100,7 @@ func (c *ExecClient) run(ctx context.Context, args ...string) (string, error) {
 
 func (c *ExecClient) ListClients(ctx context.Context) ([]ClientInfo, error) {
 	out, err := c.run(ctx, "list-clients", "-F",
-		"#{client_name}|||#{client_session}|||#{client_width}|||#{client_height}|||#{client_activity}")
+		"#{client_name}\t#{client_session}\t#{client_width}\t#{client_height}\t#{client_activity}")
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,7 @@ func (c *ExecClient) NewSession(ctx context.Context, opts NewSessionOpts) error 
 
 func (c *ExecClient) ListWindows(ctx context.Context, session string) ([]WindowInfo, error) {
 	out, err := c.run(ctx, "list-windows", "-t", session, "-F",
-		"#{window_id}|||#{window_index}|||#{window_name}|||#{session_name}|||#{window_active}")
+		"#{window_id}\t#{window_index}\t#{window_name}\t#{session_name}\t#{window_active}")
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +249,7 @@ func (c *ExecClient) KillWindow(ctx context.Context, target string) error {
 }
 
 func (c *ExecClient) ListPanes(ctx context.Context, session string) ([]PaneInfo, error) {
-	args := []string{"list-panes", "-F", "#{pane_id}|||#{window_id}|||#{pane_pid}|||#{pane_dead}"}
+	args := []string{"list-panes", "-F", "#{pane_id}\t#{window_id}\t#{pane_pid}\t#{pane_dead}"}
 	if session != "" {
 		args = append(args, "-t", session)
 	} else {
@@ -315,7 +315,7 @@ func parseClients(out string) []ClientInfo {
 	}
 	var clients []ClientInfo
 	for _, line := range strings.Split(out, "\n") {
-		parts := strings.SplitN(line, "|||", 5)
+		parts := strings.SplitN(line, "\t", 5)
 		if len(parts) < 5 {
 			continue
 		}
@@ -339,7 +339,7 @@ func parseWindows(out string) []WindowInfo {
 	}
 	var windows []WindowInfo
 	for _, line := range strings.Split(out, "\n") {
-		parts := strings.SplitN(line, "|||", 5)
+		parts := strings.SplitN(line, "\t", 5)
 		if len(parts) < 5 {
 			continue
 		}
@@ -361,7 +361,7 @@ func parsePanes(out string) []PaneInfo {
 	}
 	var panes []PaneInfo
 	for _, line := range strings.Split(out, "\n") {
-		parts := strings.SplitN(line, "|||", 4)
+		parts := strings.SplitN(line, "\t", 4)
 		if len(parts) < 4 {
 			continue
 		}
