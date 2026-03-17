@@ -426,6 +426,44 @@ type TmuxClient interface {
 }
 ```
 
+### 専用 tmux ソケットによるセッション分離
+
+lazyclaude が管理するセッションはユーザーの tmux セッションリストから分離する。
+`ExecClient` が専用ソケット (`-L lazyclaude`) を使うことで実現:
+
+```
+ユーザーの tmux (default)     lazyclaude の tmux (-L lazyclaude)
+┌─────────────────┐           ┌──────────────────┐
+│ main: 3 windows │           │ lc-abc: claude   │
+│ work: 2 windows │           │ lc-def: claude   │
+└─────────────────┘           └──────────────────┘
+tmux ls → 2 sessions          ユーザーには見えない
+```
+
+`ExecClient` にソケット名を設定:
+
+```go
+type ExecClient struct {
+    tmuxBin string
+    socket  string  // "-L lazyclaude" — 空ならデフォルトソケット
+}
+
+func (c *ExecClient) run(ctx context.Context, args ...string) (string, error) {
+    if c.socket != "" {
+        args = append([]string{"-L", c.socket}, args...)
+    }
+    // ...
+}
+```
+
+利点:
+- `tmux ls` にセッションが表示されない
+- ユーザーが誤って lazyclaude のウィンドウを kill しない
+- テスト環境と同じ隔離パターン (`-L lc-dev` → `-L lazyclaude`)
+
+lazyclaude.tmux 拡張 (P7) では、ユーザーの tmux から `tmux -L lazyclaude` 経由で
+lazyclaude セッションにアクセスする。
+
 ### 完了条件
 
 - mock テスト 15+ ケース
@@ -1657,6 +1695,7 @@ P0 ─┬─→ P1 ─┬─→ P2 ──────────┐
 - [ ] P1.5 プロセスツリー走査 (`internal/core/process/tree.go`) — pidwalk 内に統合
 - [x] P1.6 config.Paths (本番/テスト隔離)
 - [x] P1.7 ユニットテスト
+- [ ] P1.8 ExecClient ソケットオプション (`-L lazyclaude` でセッション分離)
 
 ### Phase 2: MCP サーバー
 
@@ -1700,6 +1739,7 @@ P0 ─┬─→ P1 ─┬─→ P2 ──────────┐
 - [x] P4.7 launch (local) — SessionManager.Create → tmux NewSession + claude 起動
 - [ ] P4.8 attach ループ (gocui 一時停止 → tmux attach → 復帰)
 - [ ] P4.9 MCP サーバー自動起動 (ensureServer)
+- [ ] P4.10 専用 tmux ソケット分離 (ExecClient に `-L lazyclaude` オプション追加)
 
 ### Phase 5: Diff / Tool Popup
 
