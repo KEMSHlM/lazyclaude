@@ -4,6 +4,7 @@ go 1.25
 
 require (
 	github.com/ActiveState/termtest v0.7.2
+	github.com/google/uuid v1.6.0
 	github.com/jesseduffield/gocui v0.3.1-0.20260308162933-5e45e57b5564
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1

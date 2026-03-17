@@ -23,12 +23,33 @@ const (
 	ModeTool                // lazyclaude tool  → tool popup viewer
 )
 
+// SessionProvider abstracts session operations for the GUI layer.
+type SessionProvider interface {
+	Sessions() []SessionItem
+	Create(path, host string) error
+	Delete(id string) error
+	Rename(id, newName string) error
+	PurgeOrphans() (int, error)
+}
+
+// SessionItem is a read-only view of a session for display.
+type SessionItem struct {
+	ID     string
+	Name   string
+	Path   string
+	Host   string
+	Status string
+	Flags  []string
+}
+
 // App is the root TUI application (lazygit Gui equivalent).
 type App struct {
 	gui          *gocui.Gui
 	mode         AppMode
 	contextMgr   *context.Manager
-	activeTabIdx int // active side panel tab (0=Sessions, 1=Server)
+	activeTabIdx int
+	sessions     SessionProvider
+	cursor       int // selected session index
 }
 
 // NewApp creates a new App. Call Run() to start the event loop.
@@ -113,6 +134,11 @@ func (a *App) ContextMgr() *context.Manager {
 	return a.contextMgr
 }
 
+// SetSessions sets the session provider for the main screen.
+func (a *App) SetSessions(sp SessionProvider) {
+	a.sessions = sp
+}
+
 // Gui returns the underlying gocui.Gui (for testing).
 func (a *App) Gui() *gocui.Gui {
 	return a.gui
@@ -165,12 +191,9 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	v.Title = tabTitle
 	v.Highlight = true
 	v.SelBgColor = gocui.ColorBlue
-	if isUnknownView(err) {
-		// First render: placeholder content
-		fmt.Fprintln(v, "  (no sessions)")
-		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, "  Press 'n' to create")
-	}
+	v.SelFgColor = gocui.ColorWhite
+	v.Clear()
+	a.renderSessionList(v)
 
 	// Server view (lower left)
 	v2, err := g.SetView("server", 0, leftMidY+1, splitX-1, maxY-2, 0)
@@ -240,6 +263,57 @@ func (a *App) layoutPopup(g *gocui.Gui, maxX, maxY int) error {
 	return nil
 }
 
+func (a *App) renderSessionList(v *gocui.View) {
+	if a.sessions == nil {
+		fmt.Fprintln(v, "  (no sessions)")
+		fmt.Fprintln(v, "")
+		fmt.Fprintln(v, "  Press 'n' to create")
+		return
+	}
+
+	items := a.sessions.Sessions()
+	if len(items) == 0 {
+		fmt.Fprintln(v, "  (no sessions)")
+		fmt.Fprintln(v, "")
+		fmt.Fprintln(v, "  Press 'n' to create")
+		return
+	}
+
+	if a.cursor >= len(items) {
+		a.cursor = len(items) - 1
+	}
+	if a.cursor < 0 {
+		a.cursor = 0
+	}
+
+	for i, item := range items {
+		prefix := "  "
+		if i == a.cursor {
+			prefix = "> "
+		}
+
+		status := ""
+		switch item.Status {
+		case "Running":
+			status = " *"
+		case "Dead":
+			status = " !"
+		case "Orphan":
+			status = " x"
+		case "Detached":
+			status = " -"
+		}
+
+		name := item.Name
+		if item.Host != "" {
+			name = item.Host + ":" + name
+		}
+		fmt.Fprintf(v, "%s%-20s%s\n", prefix, name, status)
+	}
+
+	v.SetCursor(0, a.cursor)
+}
+
 func (a *App) setupGlobalKeybindings() error {
 	// Ctrl+C to quit (always)
 	if err := a.gui.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
@@ -271,5 +345,86 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
+	// j/k: cursor movement
+	if err := a.gui.SetKeybinding("", 'j', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.mode == ModeMain && a.sessions != nil {
+			if a.cursor < len(a.sessions.Sessions())-1 {
+				a.cursor++
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding("", 'k', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.mode == ModeMain && a.cursor > 0 {
+			a.cursor--
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// n: create new session (CWD)
+	if err := a.gui.SetKeybinding("", 'n', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.mode != ModeMain || a.sessions == nil {
+			return nil
+		}
+		if err := a.sessions.Create(".", ""); err != nil {
+			a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			return nil
+		}
+		a.setStatus(g, "Session created")
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// d: delete selected session
+	if err := a.gui.SetKeybinding("", 'd', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.mode != ModeMain || a.sessions == nil {
+			return nil
+		}
+		items := a.sessions.Sessions()
+		if a.cursor >= 0 && a.cursor < len(items) {
+			if err := a.sessions.Delete(items[a.cursor].ID); err != nil {
+				a.setStatus(g, fmt.Sprintf("Error: %v", err))
+				return nil
+			}
+			if a.cursor > 0 && a.cursor >= len(a.sessions.Sessions()) {
+				a.cursor--
+			}
+			a.setStatus(g, "Session deleted")
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// D: purge orphans
+	if err := a.gui.SetKeybinding("", 'D', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.mode != ModeMain || a.sessions == nil {
+			return nil
+		}
+		count, err := a.sessions.PurgeOrphans()
+		if err != nil {
+			a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			return nil
+		}
+		a.setStatus(g, fmt.Sprintf("Purged %d orphans", count))
+		return nil
+	}); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func (a *App) setStatus(g *gocui.Gui, msg string) {
+	v, err := g.View("server")
+	if err != nil {
+		return
+	}
+	v.Clear()
+	fmt.Fprintln(v, "  "+msg)
 }

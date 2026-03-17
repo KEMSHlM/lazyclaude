@@ -96,9 +96,8 @@ func (c *ExecClient) NewSession(ctx context.Context, opts NewSessionOpts) error 
 	if err := validateShellSafe(opts.Name, "session name"); err != nil {
 		return err
 	}
-	if err := validateShellSafe(opts.Command, "command"); err != nil {
-		return err
-	}
+	// opts.Command is not validated — it's built by the application and may
+	// contain shell constructs like "cd /path && claude"
 	for k := range opts.Env {
 		if err := validateEnvKey(k); err != nil {
 			return err
@@ -139,9 +138,6 @@ func (c *ExecClient) ListWindows(ctx context.Context, session string) ([]WindowI
 }
 
 func (c *ExecClient) NewWindow(ctx context.Context, opts NewWindowOpts) error {
-	if err := validateShellSafe(opts.Command, "command"); err != nil {
-		return err
-	}
 	for k := range opts.Env {
 		if err := validateEnvKey(k); err != nil {
 			return err
