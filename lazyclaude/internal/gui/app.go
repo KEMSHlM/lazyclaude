@@ -58,6 +58,8 @@ type App struct {
 	previewCache   string // cached preview content
 	previewCursor  int    // cursor position when cache was taken
 	previewCounter int    // frame counter for throttling
+	lastWidth      int    // previous terminal width (for resize detection)
+	lastHeight     int    // previous terminal height
 }
 
 // NewApp creates a new App. Call Run() to start the event loop.
@@ -154,6 +156,14 @@ func (a *App) Gui() *gocui.Gui {
 
 func (a *App) layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
+
+	// Detect terminal resize → clear preview cache
+	if maxX != a.lastWidth || maxY != a.lastHeight {
+		a.previewCache = ""
+		a.lastWidth = maxX
+		a.lastHeight = maxY
+	}
+
 	switch a.mode {
 	case ModeMain:
 		return a.layoutMain(g, maxX, maxY)
