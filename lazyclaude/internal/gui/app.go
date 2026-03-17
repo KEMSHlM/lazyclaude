@@ -2,6 +2,8 @@ package gui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/context"
@@ -30,7 +32,8 @@ type SessionProvider interface {
 	Delete(id string) error
 	Rename(id, newName string) error
 	PurgeOrphans() (int, error)
-	CapturePreview(id string) (string, error) // capture-pane content for preview
+	CapturePreview(id string) (string, error)
+	AttachCmd(id string) (*exec.Cmd, error) // returns a Cmd to attach to session
 }
 
 // SessionItem is a read-only view of a session for display.
@@ -448,6 +451,42 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
+	// enter: attach to selected session
+	if err := a.gui.SetKeybinding("", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		return a.attachSelected(g)
+	}); err != nil {
+		return err
+	}
+
+	// r: resume (attach with --resume flag)
+	if err := a.gui.SetKeybinding("", 'r', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		// TODO: pass --resume flag to the session
+		return a.attachSelected(g)
+	}); err != nil {
+		return err
+	}
+
+	// R: rename selected session
+	if err := a.gui.SetKeybinding("", 'R', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.mode != ModeMain || a.sessions == nil {
+			return nil
+		}
+		// TODO: prompt for new name (requires input popup)
+		// For now, append "-renamed" as placeholder
+		items := a.sessions.Sessions()
+		if a.cursor >= 0 && a.cursor < len(items) {
+			newName := items[a.cursor].Name + "-renamed"
+			if err := a.sessions.Rename(items[a.cursor].ID, newName); err != nil {
+				a.setStatus(g, fmt.Sprintf("Error: %v", err))
+				return nil
+			}
+			a.setStatus(g, "Renamed to "+newName)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
 	// D: purge orphans
 	if err := a.gui.SetKeybinding("", 'D', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		if a.mode != ModeMain || a.sessions == nil {
@@ -464,6 +503,46 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
+	return nil
+}
+
+func (a *App) attachSelected(g *gocui.Gui) error {
+	if a.mode != ModeMain || a.sessions == nil {
+		return nil
+	}
+	items := a.sessions.Sessions()
+	if a.cursor < 0 || a.cursor >= len(items) {
+		return nil
+	}
+	item := items[a.cursor]
+	if item.Status == "Orphan" {
+		a.setStatus(g, "Cannot attach: session is orphaned")
+		return nil
+	}
+
+	cmd, err := a.sessions.AttachCmd(item.ID)
+	if err != nil {
+		a.setStatus(g, fmt.Sprintf("Error: %v", err))
+		return nil
+	}
+
+	// Suspend gocui, run tmux attach, then resume
+	if err := g.Suspend(); err != nil {
+		a.setStatus(g, fmt.Sprintf("Suspend error: %v", err))
+		return nil
+	}
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Run() // blocks until user detaches
+
+	if err := g.Resume(); err != nil {
+		return err
+	}
+
+	// Clear preview cache to refresh after detach
+	a.previewCache = ""
 	return nil
 }
 

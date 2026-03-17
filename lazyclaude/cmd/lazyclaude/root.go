@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
@@ -71,6 +72,17 @@ func (a *sessionAdapter) Sessions() []gui.SessionItem {
 		}
 	}
 	return items
+}
+
+func (a *sessionAdapter) AttachCmd(id string) (*exec.Cmd, error) {
+	sess := a.mgr.Store().FindByID(id)
+	if sess == nil {
+		return nil, fmt.Errorf("session not found: %s", id)
+	}
+	target := "lazyclaude:" + sess.WindowName()
+	// Build tmux attach command with the same socket
+	cmd := exec.Command("tmux", "-L", "lazyclaude", "attach-session", "-t", target)
+	return cmd, nil
 }
 
 func (a *sessionAdapter) CapturePreview(id string) (string, error) {
