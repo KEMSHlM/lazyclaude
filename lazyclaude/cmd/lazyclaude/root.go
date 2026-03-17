@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
@@ -34,6 +35,11 @@ func newRootCmd() *cobra.Command {
 
 			// Ensure MCP server is running
 			ensureMCPServer()
+
+			// Start background GC to remove dead/orphan sessions
+			gc := session.NewGC(mgr, 2*time.Second)
+			gc.Start()
+			defer gc.Stop()
 
 			adapter := &sessionAdapter{mgr: mgr, tmux: tmuxClient}
 
