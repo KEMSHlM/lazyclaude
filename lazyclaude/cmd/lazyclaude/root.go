@@ -33,8 +33,8 @@ func newRootCmd() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 			}
 
-			// Configure Claude onboarding in background (non-blocking)
-			go mgr.EnsureClaudeConfigured(".")
+			// Skip Claude onboarding dialogs (JSON file I/O only, no subprocess)
+			mgr.EnsureClaudeConfigured(".")
 
 			// Ensure MCP server is running
 			ensureMCPServer()

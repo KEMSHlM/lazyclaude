@@ -36,7 +36,7 @@ func TestTmux_DiffPopup_ShowsContent(t *testing.T) {
 func TestTmux_ToolPopup_ShowsContent(t *testing.T) {
 	bin := ensureBinary(t)
 	h := newTmuxHelper(t)
-	h.startSession("tool-test", 80, 15)
+	h.startSession("tool-test", 200, 15)
 
 	// Set env vars for tool popup
 	h.sendKeys("tool-test",

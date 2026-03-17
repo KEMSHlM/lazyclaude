@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -75,68 +74,42 @@ func (m *Manager) Sync(ctx context.Context) error {
 	return nil
 }
 
-// EnsureClaudeConfigured ensures Claude Code's onboarding is complete.
-// Without this, Claude shows theme selection and trust dialogs on first run.
-func (m *Manager) EnsureClaudeConfigured(dirPath string) error {
+// EnsureClaudeConfigured sets onboarding flags in ~/.claude.json so that
+// Claude Code skips theme selection and workspace trust dialogs.
+// Only writes if hasCompletedOnboarding is not already true.
+// No subprocess calls — just JSON file I/O (< 1ms).
+func (m *Manager) EnsureClaudeConfigured(dirPath string) {
 	configPath := filepath.Join(os.Getenv("HOME"), ".claude.json")
 
-	data, err := os.ReadFile(configPath)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read claude config: %w", err)
-	}
-
 	var cfg map[string]any
-	if len(data) > 0 {
-		if err := json.Unmarshal(data, &cfg); err != nil {
+	if data, err := os.ReadFile(configPath); err == nil && len(data) > 0 {
+		if json.Unmarshal(data, &cfg) != nil {
 			cfg = make(map[string]any)
 		}
 	} else {
 		cfg = make(map[string]any)
 	}
 
-	// Check if already configured
 	if completed, ok := cfg["hasCompletedOnboarding"].(bool); ok && completed {
-		return nil
+		return
 	}
 
-	// Run claude -p to generate base config
-	cmd := exec.Command("claude", "-p", "--output-format", "text")
-	cmd.Stdin = strings.NewReader("hi")
-	cmd.Run() // best-effort, ignore errors
-
-	// Re-read (claude -p may have created/updated the file)
-	data, _ = os.ReadFile(configPath)
-	if len(data) > 0 {
-		json.Unmarshal(data, &cfg)
-	}
-
-	// Set onboarding flags
 	cfg["hasCompletedOnboarding"] = true
 	cfg["numStartups"] = 10
 
-	// Get version for lastOnboardingVersion
-	if out, err := exec.Command("claude", "--version").Output(); err == nil {
-		version := strings.TrimSpace(strings.Fields(string(out))[0])
-		cfg["lastOnboardingVersion"] = version
-	}
-
-	// Set trust for the working directory
 	projects, _ := cfg["projects"].(map[string]any)
 	if projects == nil {
 		projects = make(map[string]any)
 	}
-	absPath, _ := filepath.Abs(dirPath)
-	if absPath != "" {
-		projects[absPath] = map[string]any{"hasTrustDialogAccepted": true, "allowedTools": []any{}}
+	if abs, err := filepath.Abs(dirPath); err == nil {
+		projects[abs] = map[string]any{"hasTrustDialogAccepted": true, "allowedTools": []any{}}
 	}
 	projects["/"] = map[string]any{"hasTrustDialogAccepted": true, "allowedTools": []any{}}
 	cfg["projects"] = projects
 
-	out, err := json.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("marshal claude config: %w", err)
+	if out, err := json.Marshal(cfg); err == nil {
+		os.WriteFile(configPath, out, 0o600)
 	}
-	return os.WriteFile(configPath, out, 0o600)
 }
 
 // Create creates a new session with a tmux window.
