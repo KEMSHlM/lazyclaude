@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/KEMSHlM/lazyclaude/internal/gui"
 	"github.com/spf13/cobra"
 )
 
@@ -13,9 +14,11 @@ func newRootCmd() *cobra.Command {
 		Long:    "lazyclaude is a terminal UI for managing Claude Code sessions, inspired by lazygit.",
 		Version: fmt.Sprintf("%s (%s)", version, commit),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: launch main TUI
-			fmt.Println("lazyclaude TUI - not yet implemented")
-			return nil
+			app, err := gui.NewApp(gui.ModeMain)
+			if err != nil {
+				return fmt.Errorf("init TUI: %w", err)
+			}
+			return app.Run()
 		},
 	}
 

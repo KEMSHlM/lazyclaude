@@ -2,10 +2,17 @@ package gui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/context"
 	"github.com/jesseduffield/gocui"
 )
+
+// isUnknownView checks for gocui's ErrUnknownView.
+// jesseduffield/gocui uses go-errors Wrap, so == and errors.Is don't work.
+func isUnknownView(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "unknown view")
+}
 
 // AppMode determines which set of views to display.
 type AppMode int
@@ -87,7 +94,10 @@ func (a *App) TestLayout(g *gocui.Gui) error {
 // Run starts the main event loop. Blocks until quit.
 func (a *App) Run() error {
 	defer a.gui.Close()
-	if err := a.gui.MainLoop(); err != nil && err != gocui.ErrQuit {
+	if err := a.gui.MainLoop(); err != nil {
+		if strings.Contains(err.Error(), "quit") {
+			return nil
+		}
 		return err
 	}
 	return nil
@@ -147,47 +157,60 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	// Left side panel: split into upper (sessions) and lower (server)
 	leftMidY := (maxY - 2) * 2 / 3
 
-	// Sessions view (upper left) — always present but visibility depends on tab
-	if v, err := g.SetView("sessions", 0, 0, splitX-1, leftMidY, 0); err != nil {
-		if err != gocui.ErrUnknownView {
-			return err
-		}
-		v.Title = tabTitle
-		v.Highlight = true
-		v.SelBgColor = gocui.ColorBlue
-	} else {
-		v.Title = tabTitle
+	// Sessions view (upper left)
+	v, err := g.SetView("sessions", 0, 0, splitX-1, leftMidY, 0)
+	if err != nil && !isUnknownView(err) {
+		return err
+	}
+	v.Title = tabTitle
+	v.Highlight = true
+	v.SelBgColor = gocui.ColorBlue
+	if isUnknownView(err) {
+		// First render: placeholder content
+		fmt.Fprintln(v, "  (no sessions)")
+		fmt.Fprintln(v, "")
+		fmt.Fprintln(v, "  Press 'n' to create")
 	}
 
 	// Server view (lower left)
-	if v, err := g.SetView("server", 0, leftMidY+1, splitX-1, maxY-2, 0); err != nil {
-		if err != gocui.ErrUnknownView {
-			return err
-		}
-		v.Title = " Server "
-		v.Wrap = true
+	v2, err := g.SetView("server", 0, leftMidY+1, splitX-1, maxY-2, 0)
+	if err != nil && !isUnknownView(err) {
+		return err
+	}
+	v2.Title = " Server "
+	v2.Wrap = true
+	if isUnknownView(err) {
+		fmt.Fprintln(v2, "  MCP: not running")
 	}
 
-	// Main panel (right side — preview / details)
-	if v, err := g.SetView("main", splitX, 0, maxX-1, maxY-2, 0); err != nil {
-		if err != gocui.ErrUnknownView {
-			return err
-		}
-		v.Title = " Main "
-		v.Wrap = true
+	// Main panel (right side)
+	v3, err := g.SetView("main", splitX, 0, maxX-1, maxY-2, 0)
+	if err != nil && !isUnknownView(err) {
+		return err
+	}
+	v3.Title = " Main "
+	v3.Wrap = true
+	if isUnknownView(err) {
+		fmt.Fprintln(v3, "")
+		fmt.Fprintln(v3, "  lazyclaude")
+		fmt.Fprintln(v3, "  A standalone TUI for Claude Code")
+		fmt.Fprintln(v3, "")
+		fmt.Fprintln(v3, "  Select a session or press 'n' to create one.")
 	}
 
 	// Options bar (bottom, frameless)
-	if v, err := g.SetView("options", 0, maxY-2, maxX-1, maxY, 0); err != nil {
-		if err != gocui.ErrUnknownView {
-			return err
-		}
-		v.Frame = false
+	v4, err := g.SetView("options", 0, maxY-2, maxX-1, maxY, 0)
+	if err != nil && !isUnknownView(err) {
+		return err
+	}
+	v4.Frame = false
+	if isUnknownView(err) {
+		fmt.Fprint(v4, " n: new  d: del  enter: attach  r: resume  R: rename  q: quit")
 	}
 
 	// Set focus to active tab's view
 	activeView := tabs[a.activeTabIdx].Name
-	if _, err := g.SetCurrentView(activeView); err != nil && err != gocui.ErrUnknownView {
+	if _, err := g.SetCurrentView(activeView); err != nil && !isUnknownView(err) {
 		return err
 	}
 	return nil
@@ -195,22 +218,23 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 
 func (a *App) layoutPopup(g *gocui.Gui, maxX, maxY int) error {
 	// Content area (top)
-	if v, err := g.SetView("content", 0, 0, maxX-1, maxY-3, 0); err != nil {
-		if err != gocui.ErrUnknownView {
-			return err
-		}
-		v.Wrap = false
+	v, err := g.SetView("content", 0, 0, maxX-1, maxY-3, 0)
+	if err != nil && !isUnknownView(err) {
+		return err
 	}
+	v.Wrap = false
 
 	// Actions bar (bottom)
-	if v, err := g.SetView("actions", 0, maxY-2, maxX-1, maxY, 0); err != nil {
-		if err != gocui.ErrUnknownView {
-			return err
-		}
-		v.Frame = false
+	v2, err := g.SetView("actions", 0, maxY-2, maxX-1, maxY, 0)
+	if err != nil && !isUnknownView(err) {
+		return err
+	}
+	v2.Frame = false
+	if isUnknownView(err) {
+		fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
 	}
 
-	if _, err := g.SetCurrentView("content"); err != nil && err != gocui.ErrUnknownView {
+	if _, err := g.SetCurrentView("content"); err != nil && !isUnknownView(err) {
 		return err
 	}
 	return nil
