@@ -44,20 +44,43 @@ func (a *App) resolveForwardTarget() string {
 // forwardKey sends a rune key to the Claude Code pane in full-screen mode.
 // Called synchronously from gocui event loop — tmux send-keys is fast (~5ms).
 func (a *App) forwardKey(ch rune) {
-	if target := a.resolveForwardTarget(); target != "" {
-		if err := a.inputForwarder.ForwardKey(target, RuneToTmuxKey(ch)); err != nil {
-			a.setStatusAsync(fmt.Sprintf("forward key: %v", err))
-		}
+	target := a.resolveForwardTarget()
+	if target == "" {
+		a.setFullScreenStatus(fmt.Sprintf("forward: no target (fwd=%v)", a.inputForwarder != nil))
+		return
+	}
+	if err := a.inputForwarder.ForwardKey(target, RuneToTmuxKey(ch)); err != nil {
+		a.setFullScreenStatus(fmt.Sprintf("forward err: %v", err))
 	}
 }
 
 // forwardSpecialKey sends a named special key (Enter, Tab, Up, Down, etc.).
 func (a *App) forwardSpecialKey(tmuxKey string) {
-	if target := a.resolveForwardTarget(); target != "" {
-		if err := a.inputForwarder.ForwardKey(target, tmuxKey); err != nil {
-			a.setStatusAsync(fmt.Sprintf("forward key: %v", err))
-		}
+	target := a.resolveForwardTarget()
+	if target == "" {
+		a.setFullScreenStatus(fmt.Sprintf("forward special: no target (fwd=%v)", a.inputForwarder != nil))
+		return
 	}
+	if err := a.inputForwarder.ForwardKey(target, tmuxKey); err != nil {
+		a.setFullScreenStatus(fmt.Sprintf("forward err: %v", err))
+	}
+}
+
+func (a *App) setFullScreenStatus(msg string) {
+	if a.gui == nil {
+		return
+	}
+	a.gui.Update(func(g *gocui.Gui) error {
+		v, err := g.View("fullscreen-bar")
+		if err != nil {
+			// Try server view as fallback
+			a.setStatus(g, msg)
+			return nil
+		}
+		v.Clear()
+		fmt.Fprintf(v, " DEBUG: %s", msg)
+		return nil
+	})
 }
 
 func (a *App) setStatusAsync(msg string) {

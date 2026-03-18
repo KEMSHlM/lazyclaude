@@ -72,8 +72,10 @@ var specialKeyMap = map[gocui.Key]string{
 	gocui.KeyCtrlZ: "C-z",
 }
 
-// Edit is called by gocui for every keypress not handled by keybindings.
-// Always returns false — we never modify the view buffer (display-only surface).
+// Edit is called by gocui for every keypress when the view is Editable.
+// In full-screen insert mode, forwards ALL keys to Claude Code.
+// Returns true to prevent global keybindings from firing (gocui skips
+// global rune bindings for Editable views, but returns true to be explicit).
 func (e *inputEditor) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) bool {
 	if !e.app.fullScreen || e.app.inputMode != ModeInsert || e.app.hasPopup() {
 		return false
@@ -82,19 +84,19 @@ func (e *inputEditor) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modi
 	// Shift+Enter: send as newline to Claude Code
 	if key == gocui.KeyEnter && mod != 0 {
 		e.app.forwardSpecialKey("Enter")
-		return false
+		return true
 	}
 
 	// Printable rune (including Unicode)
 	if ch != 0 {
 		e.app.forwardKey(ch)
-		return false
+		return true
 	}
 
 	// Special key
 	if tmuxKey, ok := specialKeyMap[key]; ok {
 		e.app.forwardSpecialKey(tmuxKey)
-		return false
+		return true
 	}
 
 	return false
