@@ -83,15 +83,33 @@ func newRootCmd() *cobra.Command {
 			}
 			app.SetSessions(adapter)
 
-			// Start control mode for event-driven refresh (non-fatal if tmux not ready)
+			// Always set subprocess-based forwarder as baseline (works without control mode)
+			app.SetInputForwarder(gui.NewTmuxInputForwarder(tmuxClient))
+
+			// Try control mode for event-driven refresh (non-fatal if tmux not ready).
+			// Will be retried when first session is created via lazyControlConnect.
 			ctrl, ctrlErr := tmux.NewControlClient("lazyclaude", "lazyclaude", func(_ string) {
 				app.NotifyOutput()
 			})
 			if ctrlErr == nil {
 				defer ctrl.Close()
-
-				// Use control mode for key forwarding (faster than subprocess per keystroke)
+				// Upgrade to control mode forwarder (faster than subprocess per keystroke)
 				app.SetInputForwarder(&controlInputForwarder{ctrl: ctrl})
+			} else {
+				// Retry control mode connection in background after sessions are created
+				go func() {
+					ticker := time.NewTicker(2 * time.Second)
+					defer ticker.Stop()
+					for range ticker.C {
+						c, err := tmux.NewControlClient("lazyclaude", "lazyclaude", func(_ string) {
+							app.NotifyOutput()
+						})
+						if err == nil {
+							app.SetInputForwarder(&controlInputForwarder{ctrl: c})
+							return // connected, stop retrying
+						}
+					}
+				}()
 			}
 
 			return app.Run()
