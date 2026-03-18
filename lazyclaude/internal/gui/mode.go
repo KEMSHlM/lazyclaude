@@ -60,10 +60,23 @@ func (a *App) setStatusAsync(msg string) {
 	})
 }
 
+// scrollDown moves the full-screen scroll offset down by one line.
+func (a *App) scrollDown() {
+	a.fullScreenScrollY++
+}
+
+// scrollUp moves the full-screen scroll offset up by one line (min 0).
+func (a *App) scrollUp() {
+	if a.fullScreenScrollY > 0 {
+		a.fullScreenScrollY--
+	}
+}
+
 func (a *App) enterFullScreen(sessionID string) {
 	a.fullScreen = true
 	a.fullScreenTarget = sessionID
 	a.inputMode = ModeInsert
+	a.fullScreenScrollY = 0
 	a.previewCache = ""
 	// Set cursor to the target session once at entry (not in layout)
 	if a.sessions != nil {

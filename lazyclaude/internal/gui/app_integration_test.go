@@ -367,6 +367,48 @@ func TestFullScreen_ExitResetsToInsertMode(t *testing.T) {
 	assert.Equal(t, gui.ModeInsert, app.InputModeForTest())
 }
 
+func TestFullScreen_NormalMode_JKScrolls(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+	app.EnterFullScreenForTest("s1")
+	app.SetInputModeForTest(gui.ModeNormal)
+
+	assert.Equal(t, 0, app.FullScreenScrollYForTest())
+
+	app.ScrollDownForTest()
+	assert.Equal(t, 1, app.FullScreenScrollYForTest())
+
+	app.ScrollDownForTest()
+	assert.Equal(t, 2, app.FullScreenScrollYForTest())
+
+	app.ScrollUpForTest()
+	assert.Equal(t, 1, app.FullScreenScrollYForTest())
+}
+
+func TestFullScreen_NormalMode_ScrollDoesNotGoBelowZero(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+	app.EnterFullScreenForTest("s1")
+	app.SetInputModeForTest(gui.ModeNormal)
+
+	app.ScrollUpForTest()
+	assert.Equal(t, 0, app.FullScreenScrollYForTest())
+}
+
 func TestPopup_BlocksSessionKeys(t *testing.T) {
 	t.Parallel()
 	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)

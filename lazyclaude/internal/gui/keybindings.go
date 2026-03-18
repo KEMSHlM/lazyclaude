@@ -143,8 +143,14 @@ func (a *App) setupGlobalKeybindings() error {
 					} else {
 						a.forwardKey(runeKey)
 					}
+				} else {
+					// Normal mode: j/k scroll preview history
+					if isDown {
+						a.scrollDown()
+					} else {
+						a.scrollUp()
+					}
 				}
-				// Normal mode: j/k scroll is TODO (Phase 3.6)
 				return nil
 			}
 			if a.mode != ModeMain {

@@ -17,7 +17,6 @@ import (
 	"github.com/KEMSHlM/lazyclaude/internal/session"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 func newRootCmd() *cobra.Command {
@@ -132,9 +131,12 @@ func ensureMCPServer() {
 
 // sessionAdapter bridges session.Manager to gui.SessionProvider.
 type sessionAdapter struct {
-	mgr   *session.Manager
-	tmux  tmux.Client
-	paths config.Paths
+	mgr          *session.Manager
+	tmux         tmux.Client
+	paths        config.Paths
+	lastResizeID string // session ID of last resize
+	lastResizeW  int
+	lastResizeH  int
 }
 
 func (a *sessionAdapter) Sessions() []gui.SessionItem {
@@ -165,23 +167,19 @@ func (a *sessionAdapter) CapturePreview(id string, width, height int) (string, e
 	}
 	ctx := context.Background()
 
-	// Resize pane to preview panel dimensions
-	if width > 0 && height > 0 {
+	// Resize pane only when target or dimensions changed (skip 100ms sleep otherwise)
+	if width > 0 && height > 0 && (id != a.lastResizeID || width != a.lastResizeW || height != a.lastResizeH) {
 		if err := a.tmux.ResizeWindow(ctx, target, width, height); err != nil {
 			return "", err
 		}
-		time.Sleep(150 * time.Millisecond) // wait for Claude to re-render
+		a.lastResizeID = id
+		a.lastResizeW = width
+		a.lastResizeH = height
+		time.Sleep(100 * time.Millisecond) // wait for Claude to re-render after resize
 	}
 
 	// Capture with ANSI colors
 	content, err := a.tmux.CapturePaneANSI(ctx, target)
-
-	// Restore to full terminal size (for Enter/attach)
-	if width > 0 && height > 0 {
-		if w, h, restoreErr := term.GetSize(int(os.Stdin.Fd())); restoreErr == nil && w > 0 && h > 0 {
-			a.tmux.ResizeWindow(ctx, target, w, h) // best-effort restore
-		}
-	}
 
 	if err != nil || width <= 0 {
 		return content, err

@@ -73,8 +73,9 @@ type App struct {
 	fullScreenTarget string                        // session ID for full-screen view
 	inputMode        InputMode                     // insert (forward) or normal (lazyclaude handles)
 	inputForwarder   InputForwarder                // forwards keys to tmux pane in full-screen
-	keyMap           *KeyMap                       // configurable key bindings
-	outputNotify     chan struct{}                 // signals pane output (from control mode)
+	keyMap             *KeyMap                       // configurable key bindings
+	outputNotify       chan struct{}                 // signals pane output (from control mode)
+	fullScreenScrollY  int                          // scroll offset in normal mode
 }
 
 // NewApp creates a new App. Call Run() to start the event loop.
