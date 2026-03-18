@@ -86,12 +86,24 @@ func newRootCmd() *cobra.Command {
 			// Key forwarding via subprocess
 			app.SetInputForwarder(gui.NewTmuxInputForwarder(tmuxClient))
 
-			// Control mode for event-driven refresh
-			ctrl, ctrlErr := tmux.NewControlClient("lazyclaude", "lazyclaude", func(_ string) {
-				app.NotifyOutput()
-			})
+			// Control mode for event-driven refresh.
+			// On first launch, tmux session doesn't exist yet → retry after session creation.
+			onOutput := func(_ string) { app.NotifyOutput() }
+			ctrl, ctrlErr := tmux.NewControlClient("lazyclaude", "lazyclaude", onOutput)
 			if ctrlErr == nil {
 				defer ctrl.Close()
+			} else {
+				go func() {
+					ticker := time.NewTicker(2 * time.Second)
+					defer ticker.Stop()
+					for range ticker.C {
+						c, err := tmux.NewControlClient("lazyclaude", "lazyclaude", onOutput)
+						if err == nil {
+							_ = c // kept alive by readLoop goroutine
+							return
+						}
+					}
+				}()
 			}
 
 			return app.Run()
