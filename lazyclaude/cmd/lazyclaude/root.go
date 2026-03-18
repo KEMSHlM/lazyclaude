@@ -187,7 +187,7 @@ func (a *sessionAdapter) CapturePreview(id string, width, height int) (string, e
 		a.lastResizeID = id
 		a.lastResizeW = width
 		a.lastResizeH = height
-		time.Sleep(100 * time.Millisecond) // wait for Claude to re-render after resize
+		time.Sleep(20 * time.Millisecond) // brief wait for re-render after resize
 	}
 
 	// Capture with ANSI colors
