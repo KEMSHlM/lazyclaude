@@ -44,7 +44,7 @@ func newServerCmd() *cobra.Command {
 			}
 
 			logger := log.New(os.Stderr, "lazyclaude: ", log.LstdFlags)
-			tmuxClient := tmux.NewExecClient()
+			tmuxClient := tmux.NewExecClientWithSocket("lazyclaude")
 			srv := server.New(cfg, tmuxClient, logger)
 
 			ctx, cancel := context.WithCancel(context.Background())

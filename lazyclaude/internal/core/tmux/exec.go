@@ -299,8 +299,18 @@ func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
 		args = append(args, fmt.Sprintf("-h%d%%", opts.Height))
 	}
 	args = append(args, "-E", opts.Cmd)
-	_, err := c.run(ctx, args...)
-	return err
+
+	// display-popup blocks until user dismisses — use the caller's context, not defaultTimeout.
+	fullArgs := c.prependSocket(args)
+	cmd := exec.CommandContext(ctx, c.tmuxBin, fullArgs...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	c.logCmd("DisplayPopup", fullArgs, string(out), err)
+	if err != nil {
+		return fmt.Errorf("display-popup: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
 }
 
 func (c *ExecClient) ShowMessage(ctx context.Context, target, format string) (string, error) {

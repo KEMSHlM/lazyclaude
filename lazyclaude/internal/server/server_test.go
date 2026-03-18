@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
+	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/KEMSHlM/lazyclaude/internal/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -186,6 +187,93 @@ func TestServer_Notify_POST(t *testing.T) {
 	var result map[string]string
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 	assert.Equal(t, "@3", result["window"])
+}
+
+func TestServer_Notify_WritesNotificationFile(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+
+	srv.State().SetConn("c1", &server.ConnState{PID: 8888, Window: "@5"})
+
+	body, _ := json.Marshal(map[string]any{
+		"pid":       8888,
+		"tool_name": "Bash",
+		"input":     `{"command":"ls"}`,
+		"cwd":       "/home/user",
+	})
+	resp := postNotify(t, port, body)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Verify notification file was written
+	n, err := notify.Read(srv.RuntimeDir())
+	require.NoError(t, err)
+	require.NotNil(t, n, "notification file should be written")
+	assert.Equal(t, "Bash", n.ToolName)
+	assert.Equal(t, `{"command":"ls"}`, n.Input)
+	assert.Equal(t, "/home/user", n.CWD)
+	assert.Equal(t, "@5", n.Window)
+}
+
+func TestServer_Notify_TwoPhase_ToolInfoThenPermission(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+	srv.State().SetConn("c1", &server.ConnState{PID: 9999, Window: "@7"})
+
+	// Phase 1: PreToolUse sends tool_info — should NOT write notification file
+	body1, _ := json.Marshal(map[string]any{
+		"type":       "tool_info",
+		"pid":        9999,
+		"tool_name":  "Write",
+		"tool_input": map[string]any{"file_path": "hello.txt", "content": "Hello"},
+	})
+	resp1 := postNotify(t, port, body1)
+	resp1.Body.Close()
+	require.Equal(t, http.StatusOK, resp1.StatusCode)
+
+	// Verify no notification file yet
+	n, err := notify.Read(srv.RuntimeDir())
+	require.NoError(t, err)
+	assert.Nil(t, n, "tool_info should not write notification file")
+
+	// Phase 2: Notification hook sends permission_prompt — should trigger popup
+	body2, _ := json.Marshal(map[string]any{
+		"pid":     9999,
+		"message": "Do you want to create hello.txt?",
+	})
+	resp2 := postNotify(t, port, body2)
+	resp2.Body.Close()
+	require.Equal(t, http.StatusOK, resp2.StatusCode)
+
+	// Verify notification file written with stored tool info
+	n, err = notify.Read(srv.RuntimeDir())
+	require.NoError(t, err)
+	require.NotNil(t, n, "permission_prompt should write notification file")
+	assert.Equal(t, "Write", n.ToolName)
+	assert.Contains(t, n.Input, "hello.txt")
+	assert.Equal(t, "@7", n.Window)
+}
+
+func TestServer_Notify_AcceptsBothAuthHeaders(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+	srv.State().SetConn("c1", &server.ConnState{PID: 1111, Window: "@1"})
+
+	// Test with X-Claude-Code-Ide-Authorization header
+	body, _ := json.Marshal(map[string]any{
+		"pid":       1111,
+		"tool_name": "Bash",
+	})
+	req, _ := http.NewRequest(http.MethodPost,
+		fmt.Sprintf("http://127.0.0.1:%d/notify", port),
+		bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Claude-Code-Ide-Authorization", "test-token")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestServer_Notify_Unauthorized(t *testing.T) {

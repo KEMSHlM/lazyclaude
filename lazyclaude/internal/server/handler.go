@@ -6,15 +6,18 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
+	"github.com/KEMSHlM/lazyclaude/internal/notify"
 )
 
 // Handler processes MCP protocol messages.
 type Handler struct {
-	state *State
-	tmux  tmux.Client
-	log   *log.Logger
+	state      *State
+	tmux       tmux.Client
+	log        *log.Logger
+	runtimeDir string // for writing notification files
 }
 
 // NewHandler creates an MCP message handler.
@@ -24,6 +27,11 @@ func NewHandler(state *State, tmuxClient tmux.Client, logger *log.Logger) *Handl
 		tmux:  tmuxClient,
 		log:   logger,
 	}
+}
+
+// SetRuntimeDir sets the runtime directory for notification files.
+func (h *Handler) SetRuntimeDir(dir string) {
+	h.runtimeDir = dir
 }
 
 // HandleMessage processes a single JSON-RPC request and returns an optional response.
@@ -157,8 +165,20 @@ func (h *Handler) handleOpenDiff(ctx context.Context, connID string, req *Reques
 
 	h.log.Printf("openDiff: window=%s file=%s", cs.Window, params.OldFilePath)
 
-	// Actual diff popup triggering is done by the server layer, not the handler.
-	// Return a success response with the window info.
+	// Write notification file for TUI popup / display-popup
+	if h.runtimeDir != "" {
+		n := notify.ToolNotification{
+			ToolName:    "Diff",
+			OldFilePath: params.OldFilePath,
+			NewContents: params.NewContents,
+			Window:      cs.Window,
+			Timestamp:   time.Now(),
+		}
+		if err := notify.Write(h.runtimeDir, n); err != nil {
+			h.log.Printf("openDiff: write notification: %v", err)
+		}
+	}
+
 	resp := NewResponse(req.ID, map[string]string{
 		"window":   cs.Window,
 		"old_path": params.OldFilePath,

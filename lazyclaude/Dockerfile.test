@@ -1,7 +1,7 @@
 FROM golang:latest
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tmux curl \
+    tmux curl nodejs expect \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code (standalone binary)
@@ -16,6 +16,9 @@ RUN go mod download
 COPY . .
 RUN go build -o /usr/local/bin/lazyclaude ./cmd/lazyclaude
 RUN go build -o /usr/local/bin/gocui-demo ./tests/testdata/minimal_gocui.go
+
+# Install Claude Code hook settings for lazyclaude popup integration
+COPY testdata/claude-settings.json /root/.claude/settings.json
 
 # Default: run all tests
 CMD ["go", "test", "-cover", "./...", "-timeout", "120s"]

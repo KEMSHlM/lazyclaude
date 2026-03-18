@@ -11,8 +11,10 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
+	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"nhooyr.io/websocket"
 )
 
@@ -46,6 +48,7 @@ type Server struct {
 func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger) *Server {
 	state := NewState()
 	handler := NewHandler(state, tmuxClient, logger)
+	handler.SetRuntimeDir(cfg.RuntimeDir)
 	lockMgr := NewLockManager(cfg.IDEDir)
 
 	s := &Server{
@@ -126,9 +129,14 @@ func (s *Server) State() *State {
 	return s.state
 }
 
+// RuntimeDir returns the runtime directory path.
+func (s *Server) RuntimeDir() string {
+	return s.config.RuntimeDir
+}
+
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Verify auth token (header only — never accept via URL query to avoid log leakage)
-	token := r.Header.Get("X-Auth-Token")
+	token := extractAuthToken(r)
 	if subtle.ConstantTimeCompare([]byte(token), []byte(s.config.Token)) != 1 {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -189,7 +197,31 @@ func (s *Server) serveConn(ctx context.Context, conn *websocket.Conn, connID str
 }
 
 type notifyRequest struct {
-	PID int `json:"pid"`
+	Type      string          `json:"type,omitempty"`       // "tool_info" or "" (permission_prompt)
+	PID       int             `json:"pid"`
+	ToolName  string          `json:"tool_name,omitempty"`
+	ToolInput json.RawMessage `json:"tool_input,omitempty"` // object from Claude Code hooks
+	Input     string          `json:"input,omitempty"`      // string (backward compat with curl tests)
+	CWD       string          `json:"cwd,omitempty"`
+	Message   string          `json:"message,omitempty"`    // from Notification hook
+}
+
+// toolInputString returns tool_input as a string, handling both object and string forms.
+func (r *notifyRequest) toolInputString() string {
+	if len(r.ToolInput) > 0 {
+		return string(r.ToolInput)
+	}
+	return r.Input
+}
+
+// extractAuthToken reads the auth token from either header name.
+// Claude Code hooks send "X-Claude-Code-Ide-Authorization",
+// direct curl tests use "X-Auth-Token".
+func extractAuthToken(r *http.Request) string {
+	if t := r.Header.Get("X-Claude-Code-Ide-Authorization"); t != "" {
+		return t
+	}
+	return r.Header.Get("X-Auth-Token")
 }
 
 func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
@@ -198,7 +230,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := r.Header.Get("X-Auth-Token")
+	token := extractAuthToken(r)
 	if subtle.ConstantTimeCompare([]byte(token), []byte(s.config.Token)) != 1 {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -225,11 +257,47 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		window = w2.ID
+		// Cache for future lookups
+		s.state.SetConn(fmt.Sprintf("notify-%d", req.PID), &ConnState{PID: req.PID, Window: window})
 	}
 
-	s.log.Printf("notify: pid=%d window=%s", req.PID, window)
+	s.log.Printf("notify: type=%s pid=%d window=%s tool=%s", req.Type, req.PID, window, req.ToolName)
 
-	// TODO: trigger tool popup via tmux display-popup
+	switch req.Type {
+	case "tool_info":
+		// Phase 1: PreToolUse hook — store tool info for later popup trigger
+		s.state.SetPending(window, PendingTool{
+			ToolName: req.ToolName,
+			Input:    req.toolInputString(),
+			CWD:      req.CWD,
+		})
+	default:
+		// Phase 2: Notification hook (permission_prompt) — trigger popup
+		// Use stored tool info if available, fall back to request fields
+		toolName := req.ToolName
+		input := req.toolInputString()
+		cwd := req.CWD
+		if pending, ok := s.state.GetPending(window); ok {
+			toolName = pending.ToolName
+			input = pending.Input
+			if pending.CWD != "" {
+				cwd = pending.CWD
+			}
+		}
+		if toolName != "" {
+			n := notify.ToolNotification{
+				ToolName:  toolName,
+				Input:     input,
+				CWD:       cwd,
+				Window:    window,
+				Timestamp: time.Now(),
+			}
+			// Write notification file for TUI to pick up via gocui overlay
+			if err := notify.Write(s.config.RuntimeDir, n); err != nil {
+				s.log.Printf("notify: write notification: %v", err)
+			}
+		}
+	}
 
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]string{"window": window}); err != nil {

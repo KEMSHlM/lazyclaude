@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
+	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/KEMSHlM/lazyclaude/internal/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -191,6 +192,35 @@ func TestHandler_OpenDiff_InvalidParams(t *testing.T) {
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Error)
 	assert.Equal(t, -32602, resp.Error.Code)
+}
+
+func TestHandler_OpenDiff_WritesNotification(t *testing.T) {
+	t.Parallel()
+	h, state, _ := newTestHandler()
+	tmpDir := t.TempDir()
+	h.SetRuntimeDir(tmpDir)
+
+	state.SetConn("conn-1", &server.ConnState{PID: 1001, Window: "@1"})
+
+	req := &server.Request{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`10`),
+		Method:  "openDiff",
+		Params:  json.RawMessage(`{"old_file_path":"/home/user/main.go","new_contents":"package main\n"}`),
+	}
+
+	resp := h.HandleMessage(context.Background(), "conn-1", req)
+	require.NotNil(t, resp)
+	assert.Nil(t, resp.Error)
+
+	// Verify notification file was written with diff info
+	n, err := notify.Read(tmpDir)
+	require.NoError(t, err)
+	require.NotNil(t, n, "openDiff should write notification file")
+	assert.Equal(t, "Diff", n.ToolName)
+	assert.Equal(t, "/home/user/main.go", n.OldFilePath)
+	assert.Equal(t, "package main\n", n.NewContents)
+	assert.True(t, n.IsDiff())
 }
 
 func TestHandler_UnknownMethod_Request(t *testing.T) {

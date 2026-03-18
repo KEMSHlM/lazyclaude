@@ -13,6 +13,7 @@ import (
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/gui"
+	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/KEMSHlM/lazyclaude/internal/session"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
@@ -75,7 +76,7 @@ func newRootCmd() *cobra.Command {
 			gc.Start()
 			defer gc.Stop()
 
-			adapter := &sessionAdapter{mgr: mgr, tmux: tmuxClient}
+			adapter := &sessionAdapter{mgr: mgr, tmux: tmuxClient, paths: paths}
 
 			app, err := gui.NewApp(gui.ModeMain)
 			if err != nil {
@@ -119,8 +120,9 @@ func ensureMCPServer() {
 
 // sessionAdapter bridges session.Manager to gui.SessionProvider.
 type sessionAdapter struct {
-	mgr  *session.Manager
-	tmux tmux.Client
+	mgr   *session.Manager
+	tmux  tmux.Client
+	paths config.Paths
 }
 
 func (a *sessionAdapter) Sessions() []gui.SessionItem {
@@ -219,4 +221,36 @@ func (a *sessionAdapter) Rename(id, newName string) error {
 
 func (a *sessionAdapter) PurgeOrphans() (int, error) {
 	return a.mgr.PurgeOrphans()
+}
+
+func (a *sessionAdapter) PendingNotification() *notify.ToolNotification {
+	n, err := notify.Read(a.paths.RuntimeDir)
+	if err != nil || n == nil {
+		return nil
+	}
+	return n
+}
+
+// choiceToKey maps a GUI choice to the key Claude Code expects.
+// Claude Code's permission dialog shows numbered options (1=Yes, 2=Allow, 3=No).
+// Single-key press selects immediately (no Enter needed).
+var choiceToKey = map[gui.Choice]string{
+	gui.ChoiceAccept: "1",
+	gui.ChoiceAllow:  "2",
+	gui.ChoiceReject: "3",
+	gui.ChoiceCancel: "Escape",
+}
+
+func (a *sessionAdapter) SendChoice(window string, choice gui.Choice) error {
+	key, ok := choiceToKey[choice]
+	if !ok {
+		key = "Escape"
+	}
+	// window is a bare tmux window ID (e.g., "@3") from State.WindowForPID.
+	// Prepend session name only if not already present.
+	target := window
+	if !strings.Contains(window, ":") {
+		target = "lazyclaude:" + window
+	}
+	return a.tmux.SendKeys(context.Background(), target, key)
 }

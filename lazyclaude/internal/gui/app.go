@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/context"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
+	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -36,6 +38,8 @@ type SessionProvider interface {
 	PurgeOrphans() (int, error)
 	CapturePreview(id string, width, height int) (string, error)
 	AttachCmd(id string) (*exec.Cmd, error)
+	PendingNotification() *notify.ToolNotification
+	SendChoice(window string, choice Choice) error
 }
 
 // SessionItem is a read-only view of a session for display.
@@ -64,6 +68,10 @@ type App struct {
 	previewTime    time.Time // last fetch timestamp
 	lastWidth      int
 	lastHeight     int
+	pendingTool    *notify.ToolNotification          // active tool popup
+	popupScrollY   int                               // scroll position for diff popup
+	popupDiffCache []string                           // cached diff lines
+	popupDiffKinds []presentation.DiffLineKind            // cached diff line kinds
 }
 
 // NewApp creates a new App. Call Run() to start the event loop.
@@ -130,7 +138,7 @@ func (a *App) TestLayout(g *gocui.Gui) error {
 func (a *App) Run() error {
 	defer a.gui.Close()
 
-	// Periodic refresh for live preview (gocui only re-renders on events)
+	// Periodic refresh for live preview and notification polling
 	done := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(500 * time.Millisecond)
@@ -140,7 +148,16 @@ func (a *App) Run() error {
 			case <-done:
 				return
 			case <-ticker.C:
-				a.gui.Update(func(g *gocui.Gui) error { return nil })
+				// All pendingTool access inside gui.Update to avoid data race
+				// with gocui's layout/keybinding goroutine.
+				a.gui.Update(func(g *gocui.Gui) error {
+					if a.sessions != nil && !a.hasPopup() {
+						if n := a.sessions.PendingNotification(); n != nil {
+							a.showToolPopup(n)
+						}
+					}
+					return nil
+				})
 			}
 		}
 	}()
@@ -188,7 +205,11 @@ func (a *App) layout(g *gocui.Gui) error {
 
 	switch a.mode {
 	case ModeMain:
-		return a.layoutMain(g, maxX, maxY)
+		if err := a.layoutMain(g, maxX, maxY); err != nil {
+			return err
+		}
+		// Tool popup overlay (on top of main layout)
+		return a.layoutToolPopup(g, maxX, maxY)
 	case ModeDiff, ModeTool:
 		return a.layoutPopup(g, maxX, maxY)
 	}
@@ -422,6 +443,9 @@ func (a *App) setupGlobalKeybindings() error {
 
 	// q to quit in main mode
 	if err := a.gui.SetKeybinding("", 'q', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			return nil
+		}
 		if a.mode == ModeMain {
 			return gocui.ErrQuit
 		}
@@ -430,8 +454,20 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// Esc: quit in popup mode, pop context in main mode
+	// Esc on popup view: cancel
+	if err := a.gui.SetKeybinding(popupViewName, gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		a.dismissPopup(ChoiceCancel)
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// Esc: dismiss popup, quit in popup mode, pop context in main mode
 	if err := a.gui.SetKeybinding("", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			a.dismissPopup(ChoiceCancel)
+			return nil
+		}
 		if a.mode == ModeDiff || a.mode == ModeTool {
 			return gocui.ErrQuit
 		}
@@ -443,8 +479,17 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// j/k and arrow keys: cursor movement
+	// j/k and arrow keys: cursor movement (blocked during popup)
 	cursorDown := func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			// Scroll diff popup
+			if a.pendingTool.IsDiff() && a.popupDiffCache != nil {
+				if a.popupScrollY < len(a.popupDiffCache)-1 {
+					a.popupScrollY++
+				}
+			}
+			return nil
+		}
 		if a.mode == ModeMain && a.sessions != nil {
 			if a.cursor < len(a.sessions.Sessions())-1 {
 				a.cursor++
@@ -453,6 +498,12 @@ func (a *App) setupGlobalKeybindings() error {
 		return nil
 	}
 	cursorUp := func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			if a.pendingTool.IsDiff() && a.popupScrollY > 0 {
+				a.popupScrollY--
+			}
+			return nil
+		}
 		if a.mode == ModeMain && a.cursor > 0 {
 			a.cursor--
 		}
@@ -470,9 +521,26 @@ func (a *App) setupGlobalKeybindings() error {
 	if err := a.gui.SetKeybinding("", gocui.KeyArrowUp, gocui.ModNone, cursorUp); err != nil {
 		return err
 	}
+	// j/k on popup view for diff scrolling
+	if err := a.gui.SetKeybinding(popupViewName, 'j', gocui.ModNone, cursorDown); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(popupViewName, 'k', gocui.ModNone, cursorUp); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(popupViewName, gocui.KeyArrowDown, gocui.ModNone, cursorDown); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(popupViewName, gocui.KeyArrowUp, gocui.ModNone, cursorUp); err != nil {
+		return err
+	}
 
-	// n: create new session (CWD)
+	// n: create new session (CWD) — blocked during popup
 	if err := a.gui.SetKeybinding("", 'n', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			a.dismissPopup(ChoiceReject)
+			return nil
+		}
 		if a.mode != ModeMain || a.sessions == nil {
 			return nil
 		}
@@ -486,8 +554,63 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// d: delete selected session
+	// Popup choice handlers — bind on BOTH global ("") and popup view name.
+	// jesseduffield/gocui dispatches view-specific bindings first when a view has focus.
+	// Global bindings may not fire when the popup view is focused.
+	popupAccept := func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			a.dismissPopup(ChoiceAccept)
+		}
+		return nil
+	}
+	popupAllow := func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			a.dismissPopup(ChoiceAllow)
+		}
+		return nil
+	}
+	popupReject := func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			a.dismissPopup(ChoiceReject)
+		}
+		return nil
+	}
+
+	// y: accept
+	if err := a.gui.SetKeybinding("", 'y', gocui.ModNone, popupAccept); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(popupViewName, 'y', gocui.ModNone, popupAccept); err != nil {
+		return err
+	}
+
+	// a: allow always
+	if err := a.gui.SetKeybinding("", 'a', gocui.ModNone, popupAllow); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(popupViewName, 'a', gocui.ModNone, popupAllow); err != nil {
+		return err
+	}
+
+	// 1/2/3: direct number selection (same as y/a/n)
+	if err := a.gui.SetKeybinding(popupViewName, '1', gocui.ModNone, popupAccept); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(popupViewName, '2', gocui.ModNone, popupAllow); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(popupViewName, '3', gocui.ModNone, popupReject); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(popupViewName, 'n', gocui.ModNone, popupReject); err != nil {
+		return err
+	}
+
+	// d: delete selected session (blocked during popup)
 	if err := a.gui.SetKeybinding("", 'd', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			return nil
+		}
 		if a.mode != ModeMain || a.sessions == nil {
 			return nil
 		}
@@ -507,23 +630,32 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// enter: attach to selected session
+	// enter: attach to selected session (blocked during popup)
 	if err := a.gui.SetKeybinding("", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			return nil
+		}
 		return a.attachSelected(g)
 	}); err != nil {
 		return err
 	}
 
-	// r: resume (attach with --resume flag)
+	// r: resume (blocked during popup)
 	if err := a.gui.SetKeybinding("", 'r', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			return nil
+		}
 		// TODO: pass --resume flag to the session
 		return a.attachSelected(g)
 	}); err != nil {
 		return err
 	}
 
-	// R: rename selected session
+	// R: rename selected session (blocked during popup)
 	if err := a.gui.SetKeybinding("", 'R', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			return nil
+		}
 		if a.mode != ModeMain || a.sessions == nil {
 			return nil
 		}
@@ -543,8 +675,11 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// D: purge orphans
+	// D: purge orphans (blocked during popup)
 	if err := a.gui.SetKeybinding("", 'D', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			return nil
+		}
 		if a.mode != ModeMain || a.sessions == nil {
 			return nil
 		}
