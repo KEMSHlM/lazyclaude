@@ -164,9 +164,6 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	previewH := maxY - 3
 	a.renderPreview(v, items, previewW, previewH)
 
-	// Mouse scroll works in both modes
-	v.SetOrigin(0, a.fullScreenScrollY)
-
 	if a.inputMode == ModeNormal {
 		g.Cursor = true
 		v.SetCursor(a.fullScreenCursorX, a.fullScreenCursorY)

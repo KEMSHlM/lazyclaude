@@ -273,9 +273,8 @@ func (c *ExecClient) CapturePaneContent(ctx context.Context, target string) (str
 }
 
 // CapturePaneANSI captures pane content with ANSI color escape codes preserved.
-// Includes scrollback buffer (-S -) for complete history.
 func (c *ExecClient) CapturePaneANSI(ctx context.Context, target string) (string, error) {
-	return c.run(ctx, "capture-pane", "-t", target, "-ep", "-S", "-")
+	return c.run(ctx, "capture-pane", "-t", target, "-ep")
 }
 
 func (c *ExecClient) SendKeys(ctx context.Context, target string, keys ...string) error {
