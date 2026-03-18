@@ -57,8 +57,12 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 }
 
 // triggerRefreshAfterInput marks preview as stale after sending a key.
-// Also resets scroll to bottom so the user sees the latest output.
+// Only in insert mode — normal mode uses copy-mode rendering via capture-pane
+// which is triggered by outputNotify or the ticker, not per-keystroke.
 func (a *App) triggerRefreshAfterInput() {
+	if a.inputMode != ModeInsert {
+		return
+	}
 	a.fullScreenScrollY = 0
 	a.previewMu.Lock()
 	if !a.previewBusy {
