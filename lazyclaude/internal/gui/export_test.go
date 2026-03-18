@@ -50,9 +50,9 @@ func (a *App) InputModeForTest() InputMode {
 	return a.inputMode
 }
 
-// SetInputModeForTest sets the input mode for testing.
+// SetInputModeForTest sets the input mode with copy-mode side effects.
 func (a *App) SetInputModeForTest(mode InputMode) {
-	a.inputMode = mode
+	a.setInputMode(mode)
 }
 
 // ForwardKeyForTest simulates forwarding a key in full-screen mode.

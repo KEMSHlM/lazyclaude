@@ -73,15 +73,36 @@ var specialKeyMap = map[gocui.Key]string{
 }
 
 // Edit is called by gocui for every keypress when the view is Editable.
-// In full-screen insert mode, forwards ALL keys to Claude Code.
-// Returns true to prevent global keybindings from firing (gocui skips
-// global rune bindings for Editable views, but returns true to be explicit).
+// Handles both insert mode (forward to Claude Code) and normal mode
+// (forward to tmux copy-mode, except q/i which are intercepted).
 func (e *inputEditor) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) bool {
-	if !e.app.fullScreen || e.app.inputMode != ModeInsert || e.app.hasPopup() {
+	if !e.app.fullScreen || e.app.hasPopup() {
 		return false
 	}
 
-	// Shift+Enter: send as newline to Claude Code
+	// Normal mode: q exits full-screen, i returns to insert.
+	// All other keys are forwarded to tmux copy-mode.
+	if e.app.inputMode == ModeNormal {
+		switch ch {
+		case 'q':
+			e.app.setInputMode(ModeInsert) // exits copy-mode
+			e.app.exitFullScreen()
+			return true
+		case 'i':
+			e.app.setInputMode(ModeInsert) // exits copy-mode
+			return true
+		}
+		// Forward to copy-mode (j/k/h/l/search/etc. handled by tmux)
+		return e.forwardAny(key, ch, mod)
+	}
+
+	// Insert mode: forward all keys to Claude Code
+	return e.forwardAny(key, ch, mod)
+}
+
+// forwardAny forwards a key event to the tmux pane.
+func (e *inputEditor) forwardAny(key gocui.Key, ch rune, mod gocui.Modifier) bool {
+	// Shift+Enter
 	if key == gocui.KeyEnter && mod != 0 {
 		e.app.forwardSpecialKey("Enter")
 		return true

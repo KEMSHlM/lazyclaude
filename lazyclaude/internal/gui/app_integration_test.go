@@ -13,10 +13,11 @@ import (
 
 // mockSessionProvider implements gui.SessionProvider for testing.
 type mockSessionProvider struct {
-	mu          sync.Mutex
-	sessions    []gui.SessionItem
-	pending     *notify.ToolNotification
-	sentChoices []sentChoice
+	mu             sync.Mutex
+	sessions       []gui.SessionItem
+	pending        *notify.ToolNotification
+	sentChoices    []sentChoice
+	copyModeActive bool
 }
 
 type sentChoice struct {
@@ -35,6 +36,13 @@ func (m *mockSessionProvider) Rename(_, _ string) error { return nil }
 func (m *mockSessionProvider) PurgeOrphans() (int, error) { return 0, nil }
 func (m *mockSessionProvider) CapturePreview(_ string, _, _ int) (string, error) {
 	return "preview content", nil
+}
+
+func (m *mockSessionProvider) SetCopyMode(_ string, enabled bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.copyModeActive = enabled
+	return nil
 }
 
 func (m *mockSessionProvider) PendingNotification() *notify.ToolNotification {
@@ -309,7 +317,7 @@ func TestFullScreen_InsertMode_ForwardsKeys(t *testing.T) {
 	assert.Equal(t, []string{"h"}, fwd.Keys())
 }
 
-func TestFullScreen_NormalMode_DoesNotForward(t *testing.T) {
+func TestFullScreen_NormalMode_ForwardsToCopyMode(t *testing.T) {
 	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
 	require.NoError(t, err)
 
@@ -325,8 +333,9 @@ func TestFullScreen_NormalMode_DoesNotForward(t *testing.T) {
 	app.EnterFullScreenForTest("s1")
 	app.SetInputModeForTest(gui.ModeNormal)
 
-	app.ForwardKeyForTest('h')
-	assert.Empty(t, fwd.Keys(), "normal mode should not forward keys")
+	// Normal mode forwards keys to tmux copy-mode
+	app.ForwardKeyForTest('j')
+	assert.Equal(t, []string{"j"}, fwd.Keys())
 }
 
 func TestFullScreen_NormalMode_QExitsFullScreen(t *testing.T) {
@@ -365,6 +374,39 @@ func TestFullScreen_ExitResetsToInsertMode(t *testing.T) {
 	// Re-enter → should be insert mode again
 	app.EnterFullScreenForTest("s1")
 	assert.Equal(t, gui.ModeInsert, app.InputModeForTest())
+}
+
+func TestFullScreen_NormalMode_EntersCopyMode(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+	app.EnterFullScreenForTest("s1")
+	app.SetInputModeForTest(gui.ModeNormal)
+
+	assert.True(t, mock.copyModeActive, "entering normal mode should activate tmux copy-mode")
+}
+
+func TestFullScreen_InsertMode_ExitsCopyMode(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+	app.EnterFullScreenForTest("s1")
+	app.SetInputModeForTest(gui.ModeNormal)
+	app.SetInputModeForTest(gui.ModeInsert)
+
+	assert.False(t, mock.copyModeActive, "returning to insert mode should exit copy-mode")
 }
 
 func TestPopup_BlocksSessionKeys(t *testing.T) {

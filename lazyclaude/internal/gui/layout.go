@@ -137,9 +137,9 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 		return err
 	}
 	v.Wrap = false
-	// Insert mode: Editable=true → Editor catches all keys for forwarding.
-	// Normal mode: Editable=false → global keybindings (q/j/k/i) work normally.
-	v.Editable = (a.inputMode == ModeInsert)
+	// Always Editable — Editor handles both insert mode (forward to Claude Code)
+	// and normal mode (forward to tmux copy-mode, except q/i).
+	v.Editable = true
 	v.Editor = &inputEditor{app: a}
 	v.Clear()
 

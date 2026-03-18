@@ -13,7 +13,7 @@ const (
 // resolveForwardTarget returns the tmux target for key forwarding.
 // Returns empty string if forwarding should be skipped.
 func (a *App) resolveForwardTarget() string {
-	if !a.fullScreen || a.inputMode != ModeInsert || a.inputForwarder == nil || a.hasPopup() || a.sessions == nil {
+	if !a.fullScreen || a.inputForwarder == nil || a.hasPopup() || a.sessions == nil {
 		return ""
 	}
 	items := a.sessions.Sessions()
@@ -68,6 +68,25 @@ func (a *App) triggerRefreshAfterInput() {
 }
 
 
+// setInputMode switches between insert and normal mode.
+// Normal mode enters tmux copy-mode; insert mode exits it.
+func (a *App) setInputMode(mode InputMode) {
+	if a.inputMode == mode {
+		return
+	}
+	a.inputMode = mode
+
+	if a.sessions == nil || !a.fullScreen {
+		return
+	}
+	items := a.sessions.Sessions()
+	if a.cursor < 0 || a.cursor >= len(items) {
+		return
+	}
+	id := items[a.cursor].ID
+	_ = a.sessions.SetCopyMode(id, mode == ModeNormal) // best-effort
+}
+
 func (a *App) enterFullScreen(sessionID string) {
 	a.fullScreen = true
 	a.fullScreenTarget = sessionID
@@ -86,8 +105,10 @@ func (a *App) enterFullScreen(sessionID string) {
 }
 
 func (a *App) exitFullScreen() {
+	if a.inputMode == ModeNormal {
+		a.setInputMode(ModeInsert) // exits copy-mode
+	}
 	a.fullScreen = false
 	a.fullScreenTarget = ""
-	a.inputMode = ModeInsert
 	a.previewCache = ""
 }

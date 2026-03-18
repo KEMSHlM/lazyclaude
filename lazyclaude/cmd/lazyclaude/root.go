@@ -159,6 +159,23 @@ type sessionAdapter struct {
 	lastResizeH  int
 }
 
+func (a *sessionAdapter) SetCopyMode(id string, enabled bool) error {
+	sess := a.mgr.Store().FindByID(id)
+	if sess == nil {
+		return nil
+	}
+	target := sess.TmuxWindow
+	if target == "" {
+		target = sess.WindowName()
+	}
+	fullTarget := "lazyclaude:" + target
+	if enabled {
+		cmd := exec.Command("tmux", "-u", "-L", "lazyclaude", "copy-mode", "-t", fullTarget)
+		return cmd.Run()
+	}
+	return a.tmux.SendKeys(context.Background(), fullTarget, "-X", "cancel")
+}
+
 func (a *sessionAdapter) Sessions() []gui.SessionItem {
 	sessions := a.mgr.Sessions()
 	items := make([]gui.SessionItem, len(sessions))
