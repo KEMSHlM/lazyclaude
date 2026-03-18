@@ -83,20 +83,21 @@ func newRootCmd() *cobra.Command {
 			}
 			app.SetSessions(adapter)
 
-			// Always set subprocess-based forwarder as baseline (works without control mode)
-			app.SetInputForwarder(gui.NewTmuxInputForwarder(tmuxClient))
+			// Forwarder with subprocess fallback — always works
+			fwd := &fallbackInputForwarder{
+				fallback: gui.NewTmuxInputForwarder(tmuxClient),
+			}
+			app.SetInputForwarder(fwd)
 
-			// Try control mode for event-driven refresh (non-fatal if tmux not ready).
-			// Will be retried when first session is created via lazyControlConnect.
+			// Try control mode for event-driven refresh (non-fatal if tmux not ready)
 			ctrl, ctrlErr := tmux.NewControlClient("lazyclaude", "lazyclaude", func(_ string) {
 				app.NotifyOutput()
 			})
 			if ctrlErr == nil {
 				defer ctrl.Close()
-				// Upgrade to control mode forwarder (faster than subprocess per keystroke)
-				app.SetInputForwarder(&controlInputForwarder{ctrl: ctrl})
+				fwd.SetControl(ctrl)
 			} else {
-				// Retry control mode connection in background after sessions are created
+				// Retry control mode in background after sessions are created
 				go func() {
 					ticker := time.NewTicker(2 * time.Second)
 					defer ticker.Stop()
@@ -105,8 +106,8 @@ func newRootCmd() *cobra.Command {
 							app.NotifyOutput()
 						})
 						if err == nil {
-							app.SetInputForwarder(&controlInputForwarder{ctrl: c})
-							return // connected, stop retrying
+							fwd.SetControl(c)
+							return
 						}
 					}
 				}()
@@ -240,13 +241,25 @@ func (a *sessionAdapter) PurgeOrphans() (int, error) {
 	return a.mgr.PurgeOrphans()
 }
 
-// controlInputForwarder sends keys via tmux control mode connection (no subprocess).
-type controlInputForwarder struct {
-	ctrl *tmux.ControlClient
+// fallbackInputForwarder tries control mode first, falls back to subprocess.
+type fallbackInputForwarder struct {
+	ctrl     *tmux.ControlClient
+	fallback gui.InputForwarder
 }
 
-func (f *controlInputForwarder) ForwardKey(target string, key string) error {
-	return f.ctrl.SendKeys(target, key)
+func (f *fallbackInputForwarder) ForwardKey(target string, key string) error {
+	if f.ctrl != nil {
+		if err := f.ctrl.SendKeys(target, key); err == nil {
+			return nil
+		}
+		// Control mode broken — disable it, use subprocess only
+		f.ctrl = nil
+	}
+	return f.fallback.ForwardKey(target, key)
+}
+
+func (f *fallbackInputForwarder) SetControl(ctrl *tmux.ControlClient) {
+	f.ctrl = ctrl
 }
 
 func (a *sessionAdapter) PendingNotification() *notify.ToolNotification {

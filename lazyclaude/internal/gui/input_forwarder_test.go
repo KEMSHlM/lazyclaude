@@ -2,6 +2,7 @@ package gui_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
@@ -52,9 +53,11 @@ func TestFullScreen_ForwardsKeys(t *testing.T) {
 
 	app.EnterFullScreenForTest("s1")
 
-	// Simulate forwarding a key in full-screen mode (synchronous)
 	app.ForwardKeyForTest('h')
 
+	require.Eventually(t, func() bool {
+		return len(fwd.Keys()) == 1
+	}, time.Second, 5*time.Millisecond)
 	assert.Equal(t, []string{"h"}, fwd.Keys())
 }
 
@@ -74,6 +77,9 @@ func TestFullScreen_ForwardsSpecialKey(t *testing.T) {
 	app.EnterFullScreenForTest("s1")
 
 	app.ForwardSpecialKeyForTest("Enter")
+	require.Eventually(t, func() bool {
+		return len(fwd.Keys()) == 1
+	}, time.Second, 5*time.Millisecond)
 	assert.Equal(t, []string{"Enter"}, fwd.Keys())
 }
 
@@ -96,6 +102,9 @@ func TestFullScreen_ExistingKeysForwardInFullMode(t *testing.T) {
 	cursorBefore := app.CursorForTest()
 	app.ForwardKeyForTest('j')
 	assert.Equal(t, cursorBefore, app.CursorForTest(), "cursor should not change in full mode")
+	require.Eventually(t, func() bool {
+		return len(fwd.Keys()) == 1
+	}, time.Second, 5*time.Millisecond)
 	assert.Equal(t, []string{"j"}, fwd.Keys())
 }
 
