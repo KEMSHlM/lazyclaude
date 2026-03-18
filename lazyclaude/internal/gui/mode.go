@@ -67,37 +67,12 @@ func (a *App) triggerRefreshAfterInput() {
 	a.previewMu.Unlock()
 }
 
-// cursorDown moves the normal-mode cursor down.
-func (a *App) normalCursorDown() {
-	a.fullScreenCursorY++
-}
-
-// cursorUp moves the normal-mode cursor up.
-func (a *App) normalCursorUp() {
-	if a.fullScreenCursorY > 0 {
-		a.fullScreenCursorY--
-	}
-}
-
-// cursorLeft moves the normal-mode cursor left.
-func (a *App) normalCursorLeft() {
-	if a.fullScreenCursorX > 0 {
-		a.fullScreenCursorX--
-	}
-}
-
-// cursorRight moves the normal-mode cursor right.
-func (a *App) normalCursorRight() {
-	a.fullScreenCursorX++
-}
 
 func (a *App) enterFullScreen(sessionID string) {
 	a.fullScreen = true
 	a.fullScreenTarget = sessionID
 	a.inputMode = ModeInsert
 	a.fullScreenScrollY = 0
-	a.fullScreenCursorX = 0
-	a.fullScreenCursorY = 0
 	a.previewCache = ""
 	// Set cursor to the target session once at entry (not in layout)
 	if a.sessions != nil {

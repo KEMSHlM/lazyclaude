@@ -164,12 +164,8 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	previewH := maxY - 3
 	a.renderPreview(v, items, previewW, previewH)
 
-	if a.inputMode == ModeNormal {
-		g.Cursor = true
-		v.SetCursor(a.fullScreenCursorX, a.fullScreenCursorY)
-	} else {
-		g.Cursor = false
-	}
+	// Scroll offset for mouse scroll
+	v.SetOrigin(0, a.fullScreenScrollY)
 
 	// Status bar
 	v2, err := g.SetView("fullscreen-bar", 0, maxY-2, maxX-1, maxY, 0)

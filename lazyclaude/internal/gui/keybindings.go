@@ -144,12 +144,7 @@ func (a *App) setupGlobalKeybindings() error {
 						a.forwardKey(runeKey)
 					}
 				} else {
-					// Normal mode: j/k move cursor
-					if isDown {
-						a.normalCursorDown()
-					} else {
-						a.normalCursorUp()
-					}
+					// Normal mode: j/k no-op for now (see issue-normal-mode-navigation.md)
 				}
 				return nil
 			}
@@ -360,12 +355,10 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// Mouse scroll in full-screen (both insert and normal modes)
+	// Mouse scroll in insert mode (scroll captured output)
 	if err := a.gui.SetKeybinding("", gocui.MouseWheelUp, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.fullScreen {
-			if a.fullScreenScrollY > 0 {
-				a.fullScreenScrollY--
-			}
+		if a.fullScreen && a.fullScreenScrollY > 0 {
+			a.fullScreenScrollY--
 		}
 		return nil
 	}); err != nil {
@@ -374,24 +367,6 @@ func (a *App) setupGlobalKeybindings() error {
 	if err := a.gui.SetKeybinding("", gocui.MouseWheelDown, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		if a.fullScreen {
 			a.fullScreenScrollY++
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// h/l: cursor left/right in normal mode (forwarded in insert mode)
-	if err := a.gui.SetKeybinding("", 'h', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.fullScreen && a.inputMode == ModeNormal {
-			a.normalCursorLeft()
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	if err := a.gui.SetKeybinding("", 'l', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.fullScreen && a.inputMode == ModeNormal {
-			a.normalCursorRight()
 		}
 		return nil
 	}); err != nil {

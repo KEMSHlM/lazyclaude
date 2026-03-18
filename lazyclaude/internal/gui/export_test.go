@@ -65,20 +65,6 @@ func (a *App) ForwardSpecialKeyForTest(tmuxKey string) {
 	a.forwardSpecialKey(tmuxKey)
 }
 
-// FullScreenCursorYForTest returns the cursor Y position.
-func (a *App) FullScreenCursorYForTest() int {
-	return a.fullScreenCursorY
-}
-
-// NormalCursorDownForTest moves cursor down.
-func (a *App) NormalCursorDownForTest() {
-	a.normalCursorDown()
-}
-
-// NormalCursorUpForTest moves cursor up.
-func (a *App) NormalCursorUpForTest() {
-	a.normalCursorUp()
-}
 
 // PollNotificationForTest simulates what the ticker does: check for pending
 // notifications and show popup. For testing without running the event loop.
