@@ -73,15 +73,22 @@ var specialKeyMap = map[gocui.Key]string{
 }
 
 // Edit is called by gocui for every keypress not handled by keybindings.
+// Always returns false — we never modify the view buffer (display-only surface).
 func (e *inputEditor) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) bool {
 	if !e.app.fullScreen || e.app.inputMode != ModeInsert || e.app.hasPopup() {
+		return false
+	}
+
+	// Shift+Enter: send as newline to Claude Code
+	if key == gocui.KeyEnter && mod != 0 {
+		e.app.forwardSpecialKey("Enter")
 		return false
 	}
 
 	// Printable rune (including Unicode)
 	if ch != 0 {
 		e.app.forwardKey(ch)
-		return false // don't modify the view buffer
+		return false
 	}
 
 	// Special key
