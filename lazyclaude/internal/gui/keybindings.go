@@ -360,6 +360,26 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
+	// Mouse scroll in normal mode
+	if err := a.gui.SetKeybinding("", gocui.MouseWheelUp, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.fullScreen && a.inputMode == ModeNormal {
+			if a.fullScreenScrollY > 0 {
+				a.fullScreenScrollY--
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding("", gocui.MouseWheelDown, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.fullScreen && a.inputMode == ModeNormal {
+			a.fullScreenScrollY++
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
 	// h/l: cursor left/right in normal mode (forwarded in insert mode)
 	if err := a.gui.SetKeybinding("", 'h', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		if a.fullScreen && a.inputMode == ModeNormal {
