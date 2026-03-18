@@ -26,7 +26,17 @@ func (a *App) resolveForwardTarget() string {
 	}
 	t := items[a.cursor].TmuxWindow
 	if t == "" {
-		return ""
+		// TmuxWindow not yet synced (between Create and first GC Sync).
+		// Construct name-based target from session ID as fallback.
+		id := items[a.cursor].ID
+		if id == "" {
+			return ""
+		}
+		windowName := "lc-" + id
+		if len(id) > 8 {
+			windowName = "lc-" + id[:8]
+		}
+		return "lazyclaude:" + windowName
 	}
 	return "lazyclaude:" + t
 }
