@@ -283,13 +283,30 @@ func (c *ExecClient) SendKeys(ctx context.Context, target string, keys ...string
 	return err
 }
 
+// shellQuote wraps a string in single quotes for safe shell interpolation.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
-	if err := validateShellSafe(opts.Cmd, "popup command"); err != nil {
+	// Build the command with env vars prepended
+	popupCmd := opts.Cmd
+	if len(opts.Env) > 0 {
+		var prefix string
+		for k, v := range opts.Env {
+			prefix += fmt.Sprintf("%s=%s ", k, shellQuote(v))
+		}
+		popupCmd = prefix + popupCmd
+	}
+
+	if err := validateShellSafe(popupCmd, "popup command"); err != nil {
 		return err
 	}
 
 	args := []string{"display-popup"}
-	if opts.Client != "" {
+	if opts.Target != "" {
+		args = append(args, "-t", opts.Target)
+	} else if opts.Client != "" {
 		args = append(args, "-c", opts.Client)
 	}
 	if opts.Width > 0 {
@@ -298,14 +315,14 @@ func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
 	if opts.Height > 0 {
 		args = append(args, fmt.Sprintf("-h%d%%", opts.Height))
 	}
-	args = append(args, "-E", opts.Cmd)
+	args = append(args, "-E", popupCmd)
 
 	// display-popup blocks until user dismisses — use the caller's context, not defaultTimeout.
 	fullArgs := c.prependSocket(args)
-	cmd := exec.CommandContext(ctx, c.tmuxBin, fullArgs...)
+	execCmd := exec.CommandContext(ctx, c.tmuxBin, fullArgs...)
 	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	execCmd.Stderr = &stderr
+	out, err := execCmd.Output()
 	c.logCmd("DisplayPopup", fullArgs, string(out), err)
 	if err != nil {
 		return fmt.Errorf("display-popup: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
