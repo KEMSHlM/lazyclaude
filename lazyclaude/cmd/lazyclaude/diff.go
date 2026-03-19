@@ -143,56 +143,73 @@ func runDiffPopup(window, oldFile, newFile string, sendKeys bool) error {
 	}
 
 	// Keybindings
-	bind := func(key interface{}, handler func(*gocui.Gui, *gocui.View) error) {
+	bind := func(key interface{}, handler func(*gocui.Gui, *gocui.View) error) error {
 		switch k := key.(type) {
 		case rune:
-			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
-				panic(fmt.Sprintf("keybinding %c: %v", k, err))
-			}
+			return g.SetKeybinding("", k, gocui.ModNone, handler)
 		case gocui.Key:
-			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
-				panic(fmt.Sprintf("keybinding %v: %v", k, err))
+			return g.SetKeybinding("", k, gocui.ModNone, handler)
+		}
+		return nil
+	}
+
+	for _, b := range []struct {
+		key     interface{}
+		handler func(*gocui.Gui, *gocui.View) error
+		cond    bool
+	}{
+		{'y', makeChoice(gui.ChoiceAccept), true},
+		{'a', makeChoice(gui.ChoiceAllow), maxOption > 2},
+		{'n', makeChoice(gui.ChoiceReject), true},
+		{gocui.KeyEsc, makeChoice(gui.ChoiceCancel), true},
+		{gocui.KeyCtrlC, makeChoice(gui.ChoiceCancel), true},
+	} {
+		if b.cond {
+			if err := bind(b.key, b.handler); err != nil {
+				return fmt.Errorf("keybinding: %w", err)
 			}
 		}
 	}
 
-	bind('y', makeChoice(gui.ChoiceAccept))
-	if maxOption > 2 {
-		bind('a', makeChoice(gui.ChoiceAllow))
+	// Scroll bindings
+	scrollBinds := []struct {
+		key     interface{}
+		handler func(*gocui.Gui, *gocui.View) error
+	}{
+		{'j', func(g *gocui.Gui, v *gocui.View) error {
+			if scrollY < len(formattedLines)-1 {
+				scrollY++
+			}
+			return nil
+		}},
+		{'k', func(g *gocui.Gui, v *gocui.View) error {
+			if scrollY > 0 {
+				scrollY--
+			}
+			return nil
+		}},
+		{'d', func(g *gocui.Gui, v *gocui.View) error {
+			_, maxY := g.Size()
+			scrollY += (maxY - 5) / 2
+			if scrollY > len(formattedLines)-1 {
+				scrollY = len(formattedLines) - 1
+			}
+			return nil
+		}},
+		{'u', func(g *gocui.Gui, v *gocui.View) error {
+			_, maxY := g.Size()
+			scrollY -= (maxY - 5) / 2
+			if scrollY < 0 {
+				scrollY = 0
+			}
+			return nil
+		}},
 	}
-	bind('n', makeChoice(gui.ChoiceReject))
-	bind(gocui.KeyEsc, makeChoice(gui.ChoiceCancel))
-	bind(gocui.KeyCtrlC, makeChoice(gui.ChoiceCancel))
-
-	// Scroll
-	bind('j', func(g *gocui.Gui, v *gocui.View) error {
-		if scrollY < len(formattedLines)-1 {
-			scrollY++
+	for _, sb := range scrollBinds {
+		if err := bind(sb.key, sb.handler); err != nil {
+			return fmt.Errorf("scroll keybinding: %w", err)
 		}
-		return nil
-	})
-	bind('k', func(g *gocui.Gui, v *gocui.View) error {
-		if scrollY > 0 {
-			scrollY--
-		}
-		return nil
-	})
-	bind('d', func(g *gocui.Gui, v *gocui.View) error {
-		_, maxY := g.Size()
-		scrollY += (maxY - 5) / 2
-		if scrollY > len(formattedLines)-1 {
-			scrollY = len(formattedLines) - 1
-		}
-		return nil
-	})
-	bind('u', func(g *gocui.Gui, v *gocui.View) error {
-		_, maxY := g.Size()
-		scrollY -= (maxY - 5) / 2
-		if scrollY < 0 {
-			scrollY = 0
-		}
-		return nil
-	})
+	}
 
 	if err := g.MainLoop(); err != nil && !strings.Contains(err.Error(), "quit") {
 		return err

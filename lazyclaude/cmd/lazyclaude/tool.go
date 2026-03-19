@@ -106,26 +106,33 @@ func runToolPopup(window, toolName, toolInput, toolCWD string, sendKeys bool) er
 		}
 	}
 
-	bind := func(key interface{}, handler func(*gocui.Gui, *gocui.View) error) {
+	bind := func(key interface{}, handler func(*gocui.Gui, *gocui.View) error) error {
 		switch k := key.(type) {
 		case rune:
-			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
-				panic(fmt.Sprintf("keybinding %c: %v", k, err))
-			}
+			return g.SetKeybinding("", k, gocui.ModNone, handler)
 		case gocui.Key:
-			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
-				panic(fmt.Sprintf("keybinding %v: %v", k, err))
+			return g.SetKeybinding("", k, gocui.ModNone, handler)
+		}
+		return nil
+	}
+
+	for _, b := range []struct {
+		key     interface{}
+		handler func(*gocui.Gui, *gocui.View) error
+		cond    bool
+	}{
+		{'y', makeChoice(gui.ChoiceAccept), true},
+		{'a', makeChoice(gui.ChoiceAllow), maxOption > 2},
+		{'n', makeChoice(gui.ChoiceReject), true},
+		{gocui.KeyEsc, makeChoice(gui.ChoiceCancel), true},
+		{gocui.KeyCtrlC, makeChoice(gui.ChoiceCancel), true},
+	} {
+		if b.cond {
+			if err := bind(b.key, b.handler); err != nil {
+				return fmt.Errorf("keybinding: %w", err)
 			}
 		}
 	}
-
-	bind('y', makeChoice(gui.ChoiceAccept))
-	if maxOption > 2 {
-		bind('a', makeChoice(gui.ChoiceAllow))
-	}
-	bind('n', makeChoice(gui.ChoiceReject))
-	bind(gocui.KeyEsc, makeChoice(gui.ChoiceCancel))
-	bind(gocui.KeyCtrlC, makeChoice(gui.ChoiceCancel))
 
 	if err := g.MainLoop(); err != nil && !strings.Contains(err.Error(), "quit") {
 		return err

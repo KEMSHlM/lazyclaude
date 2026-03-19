@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,10 +25,13 @@ func validateShellSafe(s, field string) error {
 	return nil
 }
 
-// validateEnvKey rejects env keys containing = or newlines.
+// envKeyPattern matches valid POSIX environment variable names.
+var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// validateEnvKey rejects env keys that are not valid POSIX identifiers.
 func validateEnvKey(k string) error {
-	if strings.ContainsAny(k, "=\n\r\x00") {
-		return fmt.Errorf("env key %q contains invalid character", k)
+	if !envKeyPattern.MatchString(k) {
+		return fmt.Errorf("env key %q is not a valid identifier", k)
 	}
 	return nil
 }
@@ -289,19 +293,19 @@ func shellQuote(s string) string {
 }
 
 func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
-	// Build the command with env vars prepended
-	popupCmd := opts.Cmd
-	if len(opts.Env) > 0 {
-		var prefix string
-		for k, v := range opts.Env {
-			prefix += fmt.Sprintf("%s=%s ", k, shellQuote(v))
+	// Validate and build env prefix before composing command
+	var prefix string
+	for k, v := range opts.Env {
+		if err := validateEnvKey(k); err != nil {
+			return err
 		}
-		popupCmd = prefix + popupCmd
+		prefix += fmt.Sprintf("%s=%s ", k, shellQuote(v))
 	}
 
-	if err := validateShellSafe(popupCmd, "popup command"); err != nil {
+	if err := validateShellSafe(opts.Cmd, "popup command"); err != nil {
 		return err
 	}
+	popupCmd := prefix + opts.Cmd
 
 	args := []string{"display-popup"}
 	if opts.Target != "" {

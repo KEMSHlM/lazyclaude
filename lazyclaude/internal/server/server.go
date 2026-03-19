@@ -303,7 +303,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 			go func() {
 				time.Sleep(50 * time.Millisecond)
 				target := "lazyclaude:" + window
-				if err := s.tmux.SendKeys(r.Context(), target, key); err != nil {
+				if err := s.tmux.SendKeys(context.Background(), target, key); err != nil {
 					s.log.Printf("notify: send diff choice key: %v", err)
 				}
 			}()
@@ -325,7 +325,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 			// Detect max option from Claude's permission dialog.
 			// Use bare window ID (e.g., "@1") — tmux resolves it across sessions.
 			maxOpt := 3
-			if content, capErr := s.tmux.CapturePaneANSI(r.Context(), window); capErr == nil {
+			if content, capErr := s.tmux.CapturePaneANSI(context.Background(), window); capErr == nil {
 				maxOpt = choice.DetectMaxOption(content)
 			}
 
@@ -343,7 +343,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Spawn tmux display-popup (non-blocking)
-			s.popup.SpawnToolPopup(r.Context(), window, toolName, input, cwd)
+			s.popup.SpawnToolPopup(context.Background(), window, toolName, input, cwd)
 		}
 	}
 
