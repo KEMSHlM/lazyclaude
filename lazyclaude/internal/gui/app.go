@@ -152,7 +152,7 @@ func (a *App) Run() error {
 	// Refresh loop: event-driven via outputNotify (from control mode),
 	// with a fallback ticker for notification polling and non-control scenarios.
 	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
+		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		for {
 			select {
