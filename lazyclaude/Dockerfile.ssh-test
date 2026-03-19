@@ -11,7 +11,7 @@ RUN ssh-keygen -t ed25519 -f /tmp/test_key -N "" -q
 # --- Stage: shared base ---
 FROM golang:latest AS base
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tmux openssh-server openssh-client curl nodejs npm expect \
+    tmux openssh-server openssh-client curl nodejs expect \
     && rm -rf /var/lib/apt/lists/*
 ENV TERM=xterm-256color
 

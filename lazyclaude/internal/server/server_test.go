@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -332,6 +333,29 @@ func TestServer_Notify_UnknownPID(t *testing.T) {
 	resp := postNotify(t, port, body)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestServer_Notify_PendingWindowFallback(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+
+	// Write pending-window file (simulates Manager.Create for SSH session)
+	pendingPath := filepath.Join(srv.RuntimeDir(), "lazyclaude-pending-window")
+	require.NoError(t, os.MkdirAll(srv.RuntimeDir(), 0o700))
+	require.NoError(t, os.WriteFile(pendingPath, []byte("@42\n"), 0o600))
+
+	body, _ := json.Marshal(map[string]any{"pid": 9999, "tool_name": "Bash"})
+	resp := postNotify(t, port, body)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	var result map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	assert.Equal(t, "@42", result["window"])
+
+	// Pending file should be consumed (removed) after first use
+	_, err := os.Stat(pendingPath)
+	assert.True(t, os.IsNotExist(err), "pending file should be removed after use")
 }
 
 func TestServer_Notify_BadJSON(t *testing.T) {

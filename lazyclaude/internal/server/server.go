@@ -259,11 +259,17 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if window == "" {
-		// Fallback for remote SSH sessions: read pending window file
+		// Fallback for remote SSH sessions: read pending window file.
+		// Consumed after first use to match ide_connected behavior.
 		pending := filepath.Join(s.config.RuntimeDir, pendingWindowFile)
 		if data, err := os.ReadFile(pending); err == nil {
-			window = strings.TrimSpace(string(data))
-			s.log.Printf("notify: using pending remote window %q for pid %d", window, req.PID)
+			if w := strings.TrimSpace(string(data)); w != "" {
+				window = w
+				s.log.Printf("notify: using pending remote window %q for pid %d", window, req.PID)
+				if rmErr := os.Remove(pending); rmErr != nil {
+					s.log.Printf("notify: remove pending file: %v", rmErr)
+				}
+			}
 		}
 	}
 	if window == "" {
