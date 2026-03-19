@@ -40,6 +40,19 @@ func newDiffCmd() *cobra.Command {
 }
 
 func runDiffPopup(window, oldFile, newFile string, sendKeys bool) error {
+	// Detect dialog option count from Claude's pane
+	maxOption := 3
+	if window != "" {
+		client := tmux.NewExecClient()
+		target := window
+		if !strings.Contains(window, ":") {
+			target = "lazyclaude:" + window
+		}
+		if content, capErr := client.CapturePaneANSI(context.Background(), target); capErr == nil {
+			maxOption = choice.DetectMaxOption(content)
+		}
+	}
+
 	// Generate diff using git diff
 	diffOutput, err := generateDiff(oldFile, newFile)
 	if err != nil {
@@ -113,7 +126,11 @@ func runDiffPopup(window, oldFile, newFile string, sendKeys bool) error {
 		}
 		v2.Frame = false
 		v2.Clear()
-		fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
+		if maxOption <= 2 {
+			fmt.Fprint(v2, " y: yes  n: no  Esc: cancel")
+		} else {
+			fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
+		}
 
 		return nil
 	})
@@ -140,7 +157,9 @@ func runDiffPopup(window, oldFile, newFile string, sendKeys bool) error {
 	}
 
 	bind('y', makeChoice(gui.ChoiceAccept))
-	bind('a', makeChoice(gui.ChoiceAllow))
+	if maxOption > 2 {
+		bind('a', makeChoice(gui.ChoiceAllow))
+	}
 	bind('n', makeChoice(gui.ChoiceReject))
 	bind(gocui.KeyEsc, makeChoice(gui.ChoiceCancel))
 	bind(gocui.KeyCtrlC, makeChoice(gui.ChoiceCancel))

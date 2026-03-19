@@ -48,6 +48,19 @@ func runToolPopup(window, toolName, toolInput, toolCWD string, sendKeys bool) er
 	td := presentation.ParseToolInput(toolName, toolInput, toolCWD)
 	bodyLines := presentation.FormatToolLines(td)
 
+	// Detect dialog option count from Claude's pane (before rendering our popup)
+	maxOption := 3
+	if window != "" {
+		client := tmux.NewExecClient()
+		target := window
+		if !strings.Contains(window, ":") {
+			target = "lazyclaude:" + window
+		}
+		if content, err := client.CapturePaneANSI(context.Background(), target); err == nil {
+			maxOption = choice.DetectMaxOption(content)
+		}
+	}
+
 	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue})
 	if err != nil {
 		return fmt.Errorf("init gocui: %w", err)
@@ -77,7 +90,11 @@ func runToolPopup(window, toolName, toolInput, toolCWD string, sendKeys bool) er
 		}
 		v2.Frame = false
 		v2.Clear()
-		fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
+		if maxOption <= 2 {
+			fmt.Fprint(v2, " y: yes  n: no  Esc: cancel")
+		} else {
+			fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
+		}
 
 		return nil
 	})
@@ -103,7 +120,9 @@ func runToolPopup(window, toolName, toolInput, toolCWD string, sendKeys bool) er
 	}
 
 	bind('y', makeChoice(gui.ChoiceAccept))
-	bind('a', makeChoice(gui.ChoiceAllow))
+	if maxOption > 2 {
+		bind('a', makeChoice(gui.ChoiceAllow))
+	}
 	bind('n', makeChoice(gui.ChoiceReject))
 	bind(gocui.KeyEsc, makeChoice(gui.ChoiceCancel))
 	bind(gocui.KeyCtrlC, makeChoice(gui.ChoiceCancel))
