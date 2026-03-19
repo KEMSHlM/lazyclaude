@@ -36,6 +36,7 @@ type Server struct {
 	state   *State
 	handler *Handler
 	lock    *LockManager
+	popup   *PopupOrchestrator
 	tmux    tmux.Client
 	log     *log.Logger
 
@@ -53,11 +54,14 @@ func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger) *Server {
 	handler.SetRuntimeDir(cfg.RuntimeDir)
 	lockMgr := NewLockManager(cfg.IDEDir)
 
+	popup := NewPopupOrchestrator(cfg.BinaryPath, tmuxClient, logger)
+
 	s := &Server{
 		config:  cfg,
 		state:   state,
 		handler: handler,
 		lock:    lockMgr,
+		popup:   popup,
 		tmux:    tmuxClient,
 		log:     logger,
 	}
@@ -291,6 +295,20 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		})
 	default:
 		// Phase 2: Notification hook (permission_prompt) — trigger popup
+
+		// Check if a diff choice was already made (openDiff popup completed)
+		if key, ok := s.state.GetDiffChoice(window); ok {
+			s.log.Printf("notify: using pending diff choice %q for window %s", key, window)
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				target := "lazyclaude:" + window
+				if err := s.tmux.SendKeys(r.Context(), target, key); err != nil {
+					s.log.Printf("notify: send diff choice key: %v", err)
+				}
+			}()
+			break
+		}
+
 		// Use stored tool info if available, fall back to request fields
 		toolName := req.ToolName
 		input := req.toolInputString()
@@ -303,6 +321,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if toolName != "" {
+			// Write notification file for TUI overlay fallback
 			n := notify.ToolNotification{
 				ToolName:  toolName,
 				Input:     input,
@@ -310,10 +329,12 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 				Window:    window,
 				Timestamp: time.Now(),
 			}
-			// Write notification file for TUI to pick up via gocui overlay
 			if err := notify.Enqueue(s.config.RuntimeDir, n); err != nil {
 				s.log.Printf("notify: write notification: %v", err)
 			}
+
+			// Spawn tmux display-popup (non-blocking)
+			s.popup.SpawnToolPopup(r.Context(), window, toolName, input, cwd)
 		}
 	}
 

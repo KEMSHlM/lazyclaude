@@ -19,12 +19,19 @@ type PendingTool struct {
 	Expiry   time.Time
 }
 
+// diffChoice stores a diff popup choice with TTL.
+type diffChoice struct {
+	Key    string
+	Expiry time.Time
+}
+
 // State manages shared server state across connections.
 type State struct {
 	mu          sync.RWMutex
-	connections map[string]*ConnState // connID -> state
-	pidToWindow map[int]string        // pid -> window ID
+	connections map[string]*ConnState  // connID -> state
+	pidToWindow map[int]string         // pid -> window ID
 	pending     map[string]PendingTool // window -> pending tool info
+	diffChoices map[string]diffChoice  // window -> diff choice (consumed on read)
 }
 
 // NewState creates an empty State.
@@ -33,6 +40,7 @@ func NewState() *State {
 		connections: make(map[string]*ConnState),
 		pidToWindow: make(map[int]string),
 		pending:     make(map[string]PendingTool),
+		diffChoices: make(map[string]diffChoice),
 	}
 }
 
@@ -101,6 +109,38 @@ func (s *State) GetPending(window string) (PendingTool, bool) {
 		return PendingTool{}, false
 	}
 	return tool, true
+}
+
+// SetDiffChoice stores a diff popup choice for a window with default TTL.
+func (s *State) SetDiffChoice(window, key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.diffChoices[window] = diffChoice{
+		Key:    key,
+		Expiry: time.Now().Add(pendingTTL),
+	}
+}
+
+// SetDiffChoiceWithExpiry stores a diff choice with explicit expiry (for testing).
+func (s *State) SetDiffChoiceWithExpiry(window, key string, expiry time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.diffChoices[window] = diffChoice{Key: key, Expiry: expiry}
+}
+
+// GetDiffChoice retrieves and removes a diff choice (if not expired).
+func (s *State) GetDiffChoice(window string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dc, ok := s.diffChoices[window]
+	if !ok {
+		return "", false
+	}
+	delete(s.diffChoices, window)
+	if time.Now().After(dc.Expiry) {
+		return "", false
+	}
+	return dc.Key, true
 }
 
 // ConnCount returns the number of active connections.
