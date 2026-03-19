@@ -76,6 +76,8 @@ type App struct {
 	keyMap             *KeyMap                       // configurable key bindings
 	outputNotify       chan struct{}                 // signals pane output (from control mode)
 	fullScreenScrollY  int                          // mouse scroll offset
+	onSessionCreated   func()                       // connect control mode after first session
+	onTick             func()                       // called every ticker cycle (control mode health check)
 }
 
 // NewApp creates a new App. Call Run() to start the event loop.
@@ -160,6 +162,9 @@ func (a *App) Run() error {
 				a.previewMu.Unlock()
 				a.gui.Update(func(g *gocui.Gui) error { return nil })
 			case <-ticker.C:
+				if a.onTick != nil {
+					a.onTick()
+				}
 				// Fallback: poll for tool notifications
 				a.gui.Update(func(g *gocui.Gui) error {
 					if a.sessions != nil && !a.hasPopup() {
@@ -202,6 +207,25 @@ func (a *App) SetSessions(sp SessionProvider) {
 // SetInputForwarder sets the input forwarder for full-screen mode.
 func (a *App) SetInputForwarder(fwd InputForwarder) {
 	a.inputForwarder = fwd
+}
+
+// SetOnSessionCreated sets a callback for when the first session is created.
+func (a *App) SetOnSessionCreated(fn func()) {
+	a.onSessionCreated = fn
+}
+
+// SetOnTick sets a callback invoked every ticker cycle (for control mode health checks).
+func (a *App) SetOnTick(fn func()) {
+	a.onTick = fn
+}
+
+// NotifySessionCreated triggers the session-created callback once.
+func (a *App) NotifySessionCreated() {
+	if a.onSessionCreated != nil {
+		fn := a.onSessionCreated
+		a.onSessionCreated = nil
+		go fn()
+	}
 }
 
 // NotifyOutput signals that a pane has new output.

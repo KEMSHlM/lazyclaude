@@ -149,6 +149,7 @@ func (a *App) setupGlobalKeybindings() error {
 			a.setStatus(g, fmt.Sprintf("Error: %v", err))
 			return nil
 		}
+		a.NotifySessionCreated()
 		a.setStatus(g, "Session created")
 		return nil
 	}); err != nil {

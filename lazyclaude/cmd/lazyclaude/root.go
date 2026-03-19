@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
@@ -87,24 +88,16 @@ func newRootCmd() *cobra.Command {
 			app.SetInputForwarder(gui.NewTmuxInputForwarder(tmuxClient))
 
 			// Control mode for event-driven refresh.
-			// On first launch, tmux session doesn't exist yet → retry after session creation.
+			// The connection dies when all tmux windows are deleted.
+			// controlManager monitors and reconnects automatically via ticker.
 			onOutput := func(_ string) { app.NotifyOutput() }
-			ctrl, ctrlErr := tmux.NewControlClient("lazyclaude", "lazyclaude", onOutput)
-			if ctrlErr == nil {
-				defer ctrl.Close()
-			} else {
-				go func() {
-					ticker := time.NewTicker(2 * time.Second)
-					defer ticker.Stop()
-					for range ticker.C {
-						c, err := tmux.NewControlClient("lazyclaude", "lazyclaude", onOutput)
-						if err == nil {
-							_ = c // kept alive by readLoop goroutine
-							return
-						}
-					}
-				}()
+			ctrlMgr := &controlManager{
+				onOutput: onOutput,
+				logger:   logger,
 			}
+			ctrlMgr.tryConnect()
+			app.SetOnTick(ctrlMgr.ensureConnected)
+			defer ctrlMgr.close()
 
 			return app.Run()
 		},
@@ -264,4 +257,44 @@ func (a *sessionAdapter) SendChoice(window string, choice gui.Choice) error {
 		target = "lazyclaude:" + window
 	}
 	return a.tmux.SendKeys(context.Background(), target, key)
+}
+
+// controlManager handles control mode connection lifecycle.
+type controlManager struct {
+	client   *tmux.ControlClient
+	onOutput func(string)
+	logger   *slog.Logger
+	mu       sync.Mutex
+}
+
+func (m *controlManager) tryConnect() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.client != nil && !m.client.Closed() {
+		return
+	}
+	c, err := tmux.NewControlClient("lazyclaude", "lazyclaude", m.onOutput)
+	if err == nil {
+		m.client = c
+		if m.logger != nil {
+			m.logger.Info("control: connected")
+		}
+	}
+}
+
+func (m *controlManager) ensureConnected() {
+	m.mu.Lock()
+	needReconnect := m.client == nil || m.client.Closed()
+	m.mu.Unlock()
+	if needReconnect {
+		m.tryConnect()
+	}
+}
+
+func (m *controlManager) close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.client != nil {
+		m.client.Close()
+	}
 }

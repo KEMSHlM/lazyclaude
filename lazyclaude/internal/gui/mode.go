@@ -1,6 +1,10 @@
 package gui
 
-import "time"
+import (
+	"time"
+
+	"github.com/jesseduffield/gocui"
+)
 
 // InputMode controls key handling in full-screen mode (vim-like).
 type InputMode int
@@ -60,16 +64,15 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 	a.triggerRefreshAfterInput()
 }
 
-// triggerRefreshAfterInput marks preview as stale after sending a key.
-// Rate-limited to 50ms to prevent capture-per-keystroke during fast typing.
-// Only called in insert mode (resolveForwardTarget blocks normal mode).
+// triggerRefreshAfterInput marks preview as stale and triggers a re-render.
 func (a *App) triggerRefreshAfterInput() {
 	a.fullScreenScrollY = 0
 	a.previewMu.Lock()
-	if !a.previewBusy && time.Since(a.previewTime) > 50*time.Millisecond {
+	if !a.previewBusy {
 		a.previewTime = time.Time{}
 	}
 	a.previewMu.Unlock()
+	a.gui.Update(func(g *gocui.Gui) error { return nil })
 }
 
 

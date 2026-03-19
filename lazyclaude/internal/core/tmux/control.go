@@ -162,6 +162,13 @@ func validateControlKey(s string) error {
 	return nil
 }
 
+// Closed returns whether the control mode connection has ended.
+func (c *ControlClient) Closed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
 // Close terminates the control mode connection.
 func (c *ControlClient) Close() error {
 	c.mu.Lock()
