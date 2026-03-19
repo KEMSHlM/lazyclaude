@@ -20,24 +20,28 @@ func TestApp_HasPopup(t *testing.T) {
 	assert.True(t, app.hasPopup())
 }
 
-func TestApp_DismissPopup_ClearsPendingTool(t *testing.T) {
+func TestApp_DismissPopup_ClearsAll(t *testing.T) {
 	t.Parallel()
 	app := &App{}
 	app.showToolPopup(&notify.ToolNotification{
+		ToolName:  "Bash",
+		Window:    "lc-1",
+		Timestamp: time.Now(),
+	})
+	app.showToolPopup(&notify.ToolNotification{
 		ToolName:  "Write",
-		Window:    "lc-test",
+		Window:    "lc-2",
 		Timestamp: time.Now(),
 	})
 
 	app.dismissPopup(ChoiceAccept)
 	assert.False(t, app.hasPopup())
-	assert.Nil(t, app.pendingTool)
+	assert.Equal(t, 0, app.popupCount())
 }
 
 func TestApp_DismissPopup_NopWhenNoPopup(t *testing.T) {
 	t.Parallel()
 	app := &App{}
-	// Should not panic
 	app.dismissPopup(ChoiceCancel)
 	assert.False(t, app.hasPopup())
 }
@@ -53,6 +57,7 @@ func TestApp_ShowToolPopup_SetsFields(t *testing.T) {
 	}
 	app.showToolPopup(n)
 
-	assert.Equal(t, "Edit", app.pendingTool.ToolName)
-	assert.Equal(t, "lc-abc", app.pendingTool.Window)
+	active := app.activePopup()
+	assert.Equal(t, "Edit", active.ToolName)
+	assert.Equal(t, "lc-abc", active.Window)
 }

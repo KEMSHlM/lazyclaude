@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/context"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/jesseduffield/gocui"
 )
@@ -65,10 +64,8 @@ type App struct {
 	previewTime      time.Time // last fetch timestamp
 	lastWidth        int
 	lastHeight       int
-	pendingTool      *notify.ToolNotification   // active tool popup
-	popupScrollY     int                         // scroll position for diff popup
-	popupDiffCache   []string                    // cached diff lines
-	popupDiffKinds   []presentation.DiffLineKind // cached diff line kinds
+	popupStack       []popupEntry                // popup stack (last = active)
+	popupFocusIdx    int                         // focused popup index
 	fullScreen       bool                         // true when in full-screen mode
 	fullScreenTarget string                        // session ID for full-screen view
 	inputMode        InputMode                     // insert (forward) or normal (lazyclaude handles)

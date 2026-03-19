@@ -36,18 +36,18 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// Esc on popup view: cancel
+	// Esc on popup view: suspend (hide, reopenable with 'p')
 	if err := a.gui.SetKeybinding(popupViewName, gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		a.dismissPopup(ChoiceCancel)
+		a.suspendAllPopups()
 		return nil
 	}); err != nil {
 		return err
 	}
 
-	// Esc: dismiss popup, forward in full-screen, quit in popup mode
+	// Esc: suspend popup, forward in full-screen, quit in popup mode
 	if err := a.gui.SetKeybinding("", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		if a.hasPopup() {
-			a.dismissPopup(ChoiceCancel)
+			a.suspendAllPopups()
 			return nil
 		}
 		if a.fullScreen && a.inputMode == ModeInsert {
@@ -69,13 +69,14 @@ func (a *App) setupGlobalKeybindings() error {
 	makeCursorHandler := func(runeKey rune, tmuxSpecial string, isDown bool) func(*gocui.Gui, *gocui.View) error {
 		return func(g *gocui.Gui, v *gocui.View) error {
 			if a.hasPopup() {
-				if isDown && a.pendingTool.IsDiff() && a.popupDiffCache != nil {
-					if a.popupScrollY < len(a.popupDiffCache)-1 {
-						a.popupScrollY++
+				entry := a.activeEntry()
+				if entry != nil && entry.notification.IsDiff() {
+					if isDown && entry.diffCache != nil && entry.scrollY < len(entry.diffCache)-1 {
+						entry.scrollY++
 					}
-				}
-				if !isDown && a.pendingTool.IsDiff() && a.popupScrollY > 0 {
-					a.popupScrollY--
+					if !isDown && entry.scrollY > 0 {
+						entry.scrollY--
+					}
 				}
 				return nil
 			}
@@ -150,6 +151,16 @@ func (a *App) setupGlobalKeybindings() error {
 			return nil
 		}
 		a.setStatus(g, "Session created")
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// 'p': unsuspend (reopen) suspended popups
+	if err := a.gui.SetKeybinding("", 'p', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.popupCount() > 0 && !a.hasPopup() {
+			a.unsuspendAll()
+		}
 		return nil
 	}); err != nil {
 		return err

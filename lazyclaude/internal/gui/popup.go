@@ -15,48 +15,51 @@ import (
 const popupViewName = "tool-popup"
 const popupActionsViewName = "tool-popup-actions"
 
-// hasPopup returns true if a tool popup is currently showing.
+// hasPopup returns true if any visible (non-suspended) popup exists.
 func (a *App) hasPopup() bool {
-	return a.pendingTool != nil
+	return a.visiblePopupCount() > 0
 }
 
-// showToolPopup activates the tool popup overlay.
+// showToolPopup pushes a notification onto the popup stack.
 func (a *App) showToolPopup(n *notify.ToolNotification) {
-	a.pendingTool = n
-	a.popupScrollY = 0
+	a.pushPopup(n)
 }
 
-// dismissPopup closes the popup and sends the choice.
+// dismissPopup sends the choice to all popups and clears the stack.
 func (a *App) dismissPopup(choice Choice) {
-	if a.pendingTool == nil {
+	if len(a.popupStack) == 0 {
 		return
 	}
-	window := a.pendingTool.Window
-	a.pendingTool = nil
-	a.popupDiffCache = nil
-	a.popupDiffKinds = nil
-	a.popupScrollY = 0
+
+	// Collect all windows to respond to
+	entries := make([]popupEntry, len(a.popupStack))
+	copy(entries, a.popupStack)
+	a.popupStack = nil
+	a.popupFocusIdx = 0
 
 	if a.sessions != nil {
 		go func() {
-			if err := a.sessions.SendChoice(window, choice); err != nil {
-				a.gui.Update(func(g *gocui.Gui) error {
-					a.setStatus(g, fmt.Sprintf("send choice: %v", err))
-					return nil
-				})
+			for _, e := range entries {
+				if err := a.sessions.SendChoice(e.notification.Window, choice); err != nil {
+					a.gui.Update(func(g *gocui.Gui) error {
+						a.setStatus(g, fmt.Sprintf("send choice: %v", err))
+						return nil
+					})
+				}
 			}
 		}()
 	}
 }
 
-
-// layoutToolPopup renders the tool/diff popup overlay centered on screen.
+// layoutToolPopup renders the active popup overlay centered on screen.
 func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
-	if a.pendingTool == nil {
+	entry := a.activeEntry()
+	if entry == nil {
 		g.DeleteView(popupViewName)
 		g.DeleteView(popupActionsViewName)
 		return nil
 	}
+	n := entry.notification
 
 	// Popup dimensions: 70% width, 60% height, centered
 	popW := maxX * 7 / 10
@@ -70,7 +73,7 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 	x0 := (maxX - popW) / 2
 	y0 := (maxY - popH) / 2
 	x1 := x0 + popW
-	y1 := y0 + popH - 2 // leave room for actions bar
+	y1 := y0 + popH - 2
 
 	v, err := g.SetView(popupViewName, x0, y0, x1, y1, 0)
 	if err != nil && !isUnknownView(err) {
@@ -78,10 +81,10 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 	}
 	v.Clear()
 
-	if a.pendingTool.IsDiff() {
-		a.renderDiffPopup(v)
+	if n.IsDiff() {
+		a.renderDiffPopup(v, entry)
 	} else {
-		a.renderToolPopup(v)
+		a.renderToolPopup(v, n)
 	}
 
 	// Actions bar below popup
@@ -91,10 +94,18 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 	}
 	v2.Frame = false
 	v2.Clear()
-	if a.pendingTool.IsDiff() {
-		fmt.Fprint(v2, " y: yes  a: allow always  n: no  j/k: scroll  Esc: cancel")
+
+	// Show stack indicator if multiple popups
+	stackInfo := ""
+	visible := a.visiblePopupCount()
+	if visible > 1 {
+		stackInfo = fmt.Sprintf(" [%d/%d]", a.popupFocusIdx+1, visible)
+	}
+
+	if n.IsDiff() {
+		fmt.Fprintf(v2, " y: yes  a: allow  n: no  j/k: scroll  Esc: suspend%s", stackInfo)
 	} else {
-		fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
+		fmt.Fprintf(v2, " y: yes  a: allow  n: no  Esc: suspend%s", stackInfo)
 	}
 
 	if _, err := g.SetCurrentView(popupViewName); err != nil && !isUnknownView(err) {
@@ -104,8 +115,7 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 	return nil
 }
 
-func (a *App) renderToolPopup(v *gocui.View) {
-	n := a.pendingTool
+func (a *App) renderToolPopup(v *gocui.View, n *notify.ToolNotification) {
 	v.Title = fmt.Sprintf(" %s ", n.ToolName)
 	td := presentation.ParseToolInput(n.ToolName, n.Input, n.CWD)
 	for _, line := range presentation.FormatToolLines(td) {
@@ -113,15 +123,15 @@ func (a *App) renderToolPopup(v *gocui.View) {
 	}
 }
 
-func (a *App) renderDiffPopup(v *gocui.View) {
-	n := a.pendingTool
+func (a *App) renderDiffPopup(v *gocui.View, entry *popupEntry) {
+	n := entry.notification
 	v.Title = fmt.Sprintf(" Diff: %s ", filepath.Base(n.OldFilePath))
 
-	diffLines, diffKinds := a.getDiffLines()
+	diffLines, diffKinds := getDiffLinesForEntry(entry)
 	_, viewH := v.Size()
 	visibleLines := viewH - 1
 
-	start := a.popupScrollY
+	start := entry.scrollY
 	end := start + visibleLines
 	if end > len(diffLines) {
 		end = len(diffLines)
@@ -148,13 +158,13 @@ func (a *App) renderDiffPopup(v *gocui.View) {
 	}
 }
 
-// getDiffLines generates and caches diff output for the current popup.
-func (a *App) getDiffLines() ([]string, []presentation.DiffLineKind) {
-	if a.popupDiffCache != nil {
-		return a.popupDiffCache, a.popupDiffKinds
+// getDiffLinesForEntry generates and caches diff output for a popup entry.
+func getDiffLinesForEntry(entry *popupEntry) ([]string, []presentation.DiffLineKind) {
+	if entry.diffCache != nil {
+		return entry.diffCache, entry.diffKinds
 	}
 
-	n := a.pendingTool
+	n := entry.notification
 	diffOutput := generateDiffFromContents(n.OldFilePath, n.NewContents)
 	parsed := presentation.ParseUnifiedDiff(diffOutput)
 
@@ -165,14 +175,13 @@ func (a *App) getDiffLines() ([]string, []presentation.DiffLineKind) {
 		kinds[i] = dl.Kind
 	}
 
-	a.popupDiffCache = lines
-	a.popupDiffKinds = kinds
+	entry.diffCache = lines
+	entry.diffKinds = kinds
 	return lines, kinds
 }
 
 // generateDiffFromContents creates a unified diff between the old file and new contents.
 func generateDiffFromContents(oldFilePath, newContents string) string {
-	// Write new contents to temp file
 	tmpDir := os.TempDir()
 	newFile, err := os.CreateTemp(tmpDir, "lazyclaude-diff-new-*")
 	if err != nil {
@@ -187,7 +196,6 @@ func generateDiffFromContents(oldFilePath, newContents string) string {
 		return fmt.Sprintf("(error closing temp file: %v)", err)
 	}
 
-	// If old file doesn't exist, show all as additions
 	if _, err := os.Stat(oldFilePath); os.IsNotExist(err) {
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("--- /dev/null\n+++ %s\n@@ -0,0 +1 @@\n", filepath.Base(oldFilePath)))
@@ -202,13 +210,10 @@ func generateDiffFromContents(oldFilePath, newContents string) string {
 	cmd := exec.Command("git", "diff", "--no-index", "--unified=3", "--", oldFilePath, newFile.Name())
 	out, err := cmd.Output()
 	if err != nil && len(out) > 0 {
-		return string(out) // git diff returns exit 1 when files differ
+		return string(out)
 	}
 	if err != nil {
 		return fmt.Sprintf("(no differences or error: %v)", err)
 	}
 	return string(out)
 }
-
-// Popup keybindings are set in setupGlobalKeybindings on both the global view ("")
-// and the popup view (popupViewName) to ensure keys reach the popup when focused.
