@@ -21,6 +21,7 @@ type ToolNotification struct {
 	Timestamp   time.Time `json:"timestamp"`
 	OldFilePath string    `json:"old_file_path,omitempty"` // set for Edit/Write diff
 	NewContents string    `json:"new_contents,omitempty"`  // set for Edit/Write diff
+	MaxOption   int       `json:"max_option,omitempty"`    // 2 or 3 (0 = unset, treat as 3)
 }
 
 // IsDiff returns true if this notification contains diff information.

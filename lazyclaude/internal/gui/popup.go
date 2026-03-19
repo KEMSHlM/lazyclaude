@@ -142,7 +142,14 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 		visible := a.popups.VisibleCount()
 		n := focusedEntry.notification
 
-		base := " y/a/n"
+		maxOpt := n.MaxOption
+		if maxOpt == 0 {
+			maxOpt = 3 // default
+		}
+		base := " y/n"
+		if maxOpt >= 3 {
+			base = " y/a/n"
+		}
 		if n.IsDiff() {
 			base += " j/k:scroll"
 		}
