@@ -96,6 +96,7 @@ func runToolPopup(window, toolName, toolInput, toolCWD string, sendKeys bool) er
 			fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
 		}
 
+		g.SetCurrentView("content")
 		return nil
 	})
 

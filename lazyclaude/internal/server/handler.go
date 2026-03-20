@@ -213,7 +213,7 @@ func (h *Handler) handleOpenDiff(ctx context.Context, connID string, req *Reques
 		h.popup.SpawnDiffPopup(ctx, cs.Window, params.OldFilePath, tmpPath)
 
 		// Read choice file written by `lazyclaude diff`
-		paths := config.DefaultPaths()
+		paths := config.Paths{RuntimeDir: h.runtimeDir}
 		if c, readErr := choice.ReadFile(paths, cs.Window); readErr == nil && c != choice.Cancel {
 			key := fmt.Sprintf("%d", c)
 			h.state.SetDiffChoice(cs.Window, key)

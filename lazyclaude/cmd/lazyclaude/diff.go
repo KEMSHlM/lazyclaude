@@ -132,6 +132,7 @@ func runDiffPopup(window, oldFile, newFile string, sendKeys bool) error {
 			fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
 		}
 
+		g.SetCurrentView("content")
 		return nil
 	})
 

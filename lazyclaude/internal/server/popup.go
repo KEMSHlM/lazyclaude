@@ -118,6 +118,11 @@ func (p *PopupOrchestrator) spawnToolPopupBlocking(ctx context.Context, req tool
 		Cmd:    cmd,
 		Env:    env,
 	}
+	// Find active client so display-popup can attach to it.
+	// Without a client, display-popup fails with "no current client".
+	if client, err := p.tmux.FindActiveClient(ctx); err == nil && client != nil {
+		opts.Client = client.Name
+	}
 	if err := p.tmux.DisplayPopup(ctx, opts); err != nil {
 		p.log.Printf("popup: spawn tool: %v", err)
 	}
@@ -138,6 +143,9 @@ func (p *PopupOrchestrator) SpawnDiffPopup(ctx context.Context, window, oldPath,
 		Height: 80,
 		Cmd:    cmd,
 		Env:    env,
+	}
+	if client, err := p.tmux.FindActiveClient(ctx); err == nil && client != nil {
+		opts.Client = client.Name
 	}
 	if err := p.tmux.DisplayPopup(ctx, opts); err != nil {
 		p.log.Printf("popup: spawn diff: %v", err)

@@ -29,6 +29,10 @@ func newMockPopupClient() *mockPopupClient {
 	}
 }
 
+func (m *mockPopupClient) FindActiveClient(_ context.Context) (*tmux.ClientInfo, error) {
+	return &tmux.ClientInfo{Name: "/dev/pts/0"}, nil
+}
+
 func (m *mockPopupClient) DisplayPopup(_ context.Context, opts tmux.PopupOpts) error {
 	m.mu.Lock()
 	m.calls = append(m.calls, opts)
