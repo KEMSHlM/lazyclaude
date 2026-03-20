@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
+	"github.com/KEMSHlM/lazyclaude/internal/core/lifecycle"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/gui"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/choice"
@@ -31,6 +32,9 @@ func newRootCmd() *cobra.Command {
 		Long:    "lazyclaude is a terminal UI for managing Claude Code sessions, inspired by lazygit.",
 		Version: fmt.Sprintf("%s (%s)", version, commit),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			lc := lifecycle.New()
+			defer lc.Close()
+
 			var logger *slog.Logger
 			paths := config.DefaultPaths()
 			tmuxSocket := "lazyclaude"
@@ -79,7 +83,7 @@ func newRootCmd() *cobra.Command {
 			// Start background GC to remove dead/orphan sessions
 			gc := session.NewGC(mgr, 2*time.Second)
 			gc.Start()
-			defer gc.Stop()
+			lc.Register("gc", gc.Stop)
 
 			adapter := &sessionAdapter{mgr: mgr, tmux: tmuxClient, paths: paths}
 
@@ -102,7 +106,7 @@ func newRootCmd() *cobra.Command {
 			}
 			ctrlMgr.tryConnect()
 			app.SetOnTick(ctrlMgr.ensureConnected)
-			defer ctrlMgr.close()
+			lc.Register("control-client", ctrlMgr.close)
 
 			return app.Run()
 		},
