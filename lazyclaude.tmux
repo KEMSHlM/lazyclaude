@@ -26,10 +26,8 @@ suppress_keys=$(tmux show-option -gqv @claude-suppress-keys 2>/dev/null)
 
 launch_key="${launch_key:-space}"
 
-# Register keybindings
-# LAZYCLAUDE_HOST_TMUX saves the user's TMUX before unsetting it, so lazyclaude
-# can open nested display-popups on the user's tmux server.
-tmux bind-key "$launch_key" display-popup -w 80% -h 80% -d "#{pane_current_path}" -E "LAZYCLAUDE_HOST_TMUX=\$TMUX env -u TMUX PATH='$LAUNCH_BIN_DIR':\$PATH LAZYCLAUDE_POPUP_MODE=tmux $BINARY"
+# Register keybindings — toggle: close if open, open if closed.
+tmux bind-key "$launch_key" display-popup -B -w 80% -h 80% -d "#{pane_current_path}" -E "LAZYCLAUDE_HOST_TMUX=\$TMUX env -u TMUX PATH='$LAUNCH_BIN_DIR':\$PATH LAZYCLAUDE_POPUP_MODE=tmux $BINARY"
 
 # Suppress specified keys inside lazyclaude session.
 # Skip if the key is already wrapped with our if-shell guard (prevents
