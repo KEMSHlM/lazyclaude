@@ -60,8 +60,11 @@ test-visual-ssh:
 lint:
 	golangci-lint run ./...
 
+PREFIX ?= /usr/local
+
 install: build
-	cp bin/$(BINARY) $(GOPATH)/bin/$(BINARY)
+	install -d $(PREFIX)/bin
+	install -m 755 bin/$(BINARY) $(PREFIX)/bin/$(BINARY)
 
 clean:
 	rm -rf bin/
