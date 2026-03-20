@@ -9,6 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// --- Benchmarks ---
+
+func BenchmarkParseToolInput_Bash(b *testing.B) {
+	for b.Loop() {
+		presentation.ParseToolInput("Bash", `{"command":"npm test -- --coverage"}`, "/home/user/app")
+	}
+}
+
+func BenchmarkFormatToolLines(b *testing.B) {
+	td := presentation.ToolDisplay{
+		Name:  "Bash",
+		CWD:   "/home/user/app",
+		Lines: []string{"npm test -- --coverage", "echo done"},
+	}
+	for b.Loop() {
+		presentation.FormatToolLines(td)
+	}
+}
+
 func TestParseToolInput_Bash(t *testing.T) {
 	t.Parallel()
 	td := presentation.ParseToolInput("Bash", `{"command":"npm test -- --coverage"}`, "/home/user/app")

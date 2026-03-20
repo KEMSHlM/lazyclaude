@@ -7,6 +7,39 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// --- Benchmarks ---
+
+var benchPaneContent = ` Bash command
+
+   for i in $(seq 1 10); do echo "line $i"; done && ls /tmp && ps aux | head -5 && echo "done"
+   Long shell script with loop, ls, ps
+
+ Command contains $() command substitution
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend · ctrl+e to explain`
+
+func BenchmarkDetectMaxOption(b *testing.B) {
+	for b.Loop() {
+		choice.DetectMaxOption(benchPaneContent)
+	}
+}
+
+func BenchmarkDetectMaxOption_LargePane(b *testing.B) {
+	// Simulate a 200-line pane with options at the bottom
+	var lines string
+	for i := 0; i < 190; i++ {
+		lines += "output line with some text and numbers 42\n"
+	}
+	lines += benchPaneContent
+	for b.Loop() {
+		choice.DetectMaxOption(lines)
+	}
+}
+
 func TestDetectMaxOption(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
