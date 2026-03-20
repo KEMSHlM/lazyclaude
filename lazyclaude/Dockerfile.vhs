@@ -1,7 +1,7 @@
 FROM ghcr.io/charmbracelet/vhs:latest
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tmux golang-go \
+    tmux golang-go git \
     && rm -rf /var/lib/apt/lists/*
 
 ENV TERM=xterm-256color
