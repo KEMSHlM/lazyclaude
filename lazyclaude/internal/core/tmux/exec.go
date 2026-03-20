@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/KEMSHlM/lazyclaude/internal/core/shell"
 )
 
 const defaultTimeout = 5 * time.Second
@@ -24,10 +27,13 @@ func validateShellSafe(s, field string) error {
 	return nil
 }
 
-// validateEnvKey rejects env keys containing = or newlines.
+// envKeyPattern matches valid POSIX environment variable names.
+var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// validateEnvKey rejects env keys that are not valid POSIX identifiers.
 func validateEnvKey(k string) error {
-	if strings.ContainsAny(k, "=\n\r\x00") {
-		return fmt.Errorf("env key %q contains invalid character", k)
+	if !envKeyPattern.MatchString(k) {
+		return fmt.Errorf("env key %q is not a valid identifier", k)
 	}
 	return nil
 }
@@ -284,12 +290,24 @@ func (c *ExecClient) SendKeys(ctx context.Context, target string, keys ...string
 }
 
 func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
+	// Validate and build env prefix before composing command
+	var prefix string
+	for k, v := range opts.Env {
+		if err := validateEnvKey(k); err != nil {
+			return err
+		}
+		prefix += fmt.Sprintf("%s=%s ", k, shell.Quote(v))
+	}
+
 	if err := validateShellSafe(opts.Cmd, "popup command"); err != nil {
 		return err
 	}
+	popupCmd := prefix + opts.Cmd
 
 	args := []string{"display-popup"}
-	if opts.Client != "" {
+	if opts.Target != "" {
+		args = append(args, "-t", opts.Target)
+	} else if opts.Client != "" {
 		args = append(args, "-c", opts.Client)
 	}
 	if opts.Width > 0 {
@@ -298,14 +316,14 @@ func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
 	if opts.Height > 0 {
 		args = append(args, fmt.Sprintf("-h%d%%", opts.Height))
 	}
-	args = append(args, "-E", opts.Cmd)
+	args = append(args, "-E", popupCmd)
 
 	// display-popup blocks until user dismisses — use the caller's context, not defaultTimeout.
 	fullArgs := c.prependSocket(args)
-	cmd := exec.CommandContext(ctx, c.tmuxBin, fullArgs...)
+	execCmd := exec.CommandContext(ctx, c.tmuxBin, fullArgs...)
 	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	execCmd.Stderr = &stderr
+	out, err := execCmd.Output()
 	c.logCmd("DisplayPopup", fullArgs, string(out), err)
 	if err != nil {
 		return fmt.Errorf("display-popup: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))

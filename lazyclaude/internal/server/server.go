@@ -15,6 +15,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KEMSHlM/lazyclaude/internal/adapter/tmuxadapter"
+	"github.com/KEMSHlM/lazyclaude/internal/core/event"
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"nhooyr.io/websocket"
@@ -32,12 +35,14 @@ type Config struct {
 
 // Server is the MCP WebSocket + HTTP server.
 type Server struct {
-	config  Config
-	state   *State
-	handler *Handler
-	lock    *LockManager
-	tmux    tmux.Client
-	log     *log.Logger
+	config       Config
+	state        *State
+	handler      *Handler
+	lock         *LockManager
+	popupOrch    *tmuxadapter.PopupOrchestrator
+	tmux         tmux.Client
+	log          *log.Logger
+	notifyBroker *event.Broker[model.Event]
 
 	listener net.Listener
 	httpSrv  *http.Server
@@ -53,13 +58,18 @@ func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger) *Server {
 	handler.SetRuntimeDir(cfg.RuntimeDir)
 	lockMgr := NewLockManager(cfg.IDEDir)
 
+	popupOrch := tmuxadapter.NewPopupOrchestrator(cfg.BinaryPath, tmuxClient, logger)
+	handler.SetPopup(popupOrch)
+
 	s := &Server{
-		config:  cfg,
-		state:   state,
-		handler: handler,
-		lock:    lockMgr,
-		tmux:    tmuxClient,
-		log:     logger,
+		config:       cfg,
+		state:        state,
+		handler:      handler,
+		lock:         lockMgr,
+		popupOrch:    popupOrch,
+		tmux:         tmuxClient,
+		log:          logger,
+		notifyBroker: event.NewBroker[model.Event](),
 	}
 
 	mux := http.NewServeMux()
@@ -118,6 +128,9 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.log.Printf("warning: remove lock: %v", err)
 	}
 
+	// Close the notify broker to release any waiting subscribers.
+	s.notifyBroker.Close()
+
 	return s.httpSrv.Shutdown(ctx)
 }
 
@@ -134,6 +147,14 @@ func (s *Server) State() *State {
 // RuntimeDir returns the runtime directory path.
 func (s *Server) RuntimeDir() string {
 	return s.config.RuntimeDir
+}
+
+// NotifyBroker returns the event broker that publishes model.Event when a
+// tool permission request arrives via /notify. The broker is created with the
+// server and lives for the server's lifetime; call broker.Close() (or Stop()
+// the server) to release subscribers.
+func (s *Server) NotifyBroker() *event.Broker[model.Event] {
+	return s.notifyBroker
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -250,28 +271,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	window := s.state.WindowForPID(req.PID)
-	if window == "" {
-		// Try local tmux PID resolution
-		w2, err := tmux.FindWindowForPid(r.Context(), s.tmux, req.PID)
-		if err == nil && w2 != nil {
-			window = w2.ID
-		}
-	}
-	if window == "" {
-		// Fallback for remote SSH sessions: read pending window file.
-		// Consumed after first use to match ide_connected behavior.
-		pending := filepath.Join(s.config.RuntimeDir, pendingWindowFile)
-		if data, err := os.ReadFile(pending); err == nil {
-			if w := strings.TrimSpace(string(data)); w != "" {
-				window = w
-				s.log.Printf("notify: using pending remote window %q for pid %d", window, req.PID)
-				if rmErr := os.Remove(pending); rmErr != nil {
-					s.log.Printf("notify: remove pending file: %v", rmErr)
-				}
-			}
-		}
-	}
+	window := s.resolveNotifyWindow(r.Context(), req.PID)
 	if window == "" {
 		http.Error(w, "window not found", http.StatusNotFound)
 		return
@@ -291,29 +291,24 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		})
 	default:
 		// Phase 2: Notification hook (permission_prompt) — trigger popup
-		// Use stored tool info if available, fall back to request fields
-		toolName := req.ToolName
-		input := req.toolInputString()
-		cwd := req.CWD
-		if pending, ok := s.state.GetPending(window); ok {
-			toolName = pending.ToolName
-			input = pending.Input
-			if pending.CWD != "" {
-				cwd = pending.CWD
-			}
+
+		// Check if a diff choice was already made (openDiff popup completed)
+		if key, ok := s.state.GetDiffChoice(window); ok {
+			s.log.Printf("notify: using pending diff choice %q for window %s", key, window)
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				target := "lazyclaude:" + window
+				if err := s.tmux.SendKeys(context.Background(), target, key); err != nil {
+					s.log.Printf("notify: send diff choice key: %v", err)
+				}
+			}()
+			break
 		}
+
+		// Resolve tool info: prefer stored PreToolUse data, fall back to request fields.
+		toolName, input, cwd := s.resolveToolInfo(window, req)
 		if toolName != "" {
-			n := notify.ToolNotification{
-				ToolName:  toolName,
-				Input:     input,
-				CWD:       cwd,
-				Window:    window,
-				Timestamp: time.Now(),
-			}
-			// Write notification file for TUI to pick up via gocui overlay
-			if err := notify.Enqueue(s.config.RuntimeDir, n); err != nil {
-				s.log.Printf("notify: write notification: %v", err)
-			}
+			s.dispatchToolNotification(window, toolName, input, cwd)
 		}
 	}
 
@@ -321,6 +316,82 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(map[string]string{"window": window}); err != nil {
 		s.log.Printf("notify: encode response: %v", err)
 	}
+}
+
+// resolveNotifyWindow determines which tmux window a /notify request belongs to.
+// It checks the state cache first, then falls back to local PID walk, then to
+// the pending-window file written for SSH remote sessions.
+func (s *Server) resolveNotifyWindow(ctx context.Context, pid int) string {
+	if window := s.state.WindowForPID(pid); window != "" {
+		return window
+	}
+
+	// Try local tmux PID resolution
+	if w2, err := tmux.FindWindowForPid(ctx, s.tmux, pid); err == nil && w2 != nil {
+		return w2.ID
+	}
+
+	// Fallback for remote SSH sessions: read pending window file.
+	// Consumed after first use to match ide_connected behavior.
+	pending := filepath.Join(s.config.RuntimeDir, pendingWindowFile)
+	if data, err := os.ReadFile(pending); err == nil {
+		if w := strings.TrimSpace(string(data)); w != "" {
+			s.log.Printf("notify: using pending remote window %q for pid %d", w, pid)
+			if rmErr := os.Remove(pending); rmErr != nil {
+				s.log.Printf("notify: remove pending file: %v", rmErr)
+			}
+			return w
+		}
+	}
+
+	return ""
+}
+
+// resolveToolInfo returns the effective tool name, input, and cwd for a permission-prompt
+// notification. It prefers data stored by an earlier PreToolUse hook over the request fields.
+func (s *Server) resolveToolInfo(window string, req notifyRequest) (toolName, input, cwd string) {
+	toolName = req.ToolName
+	input = req.toolInputString()
+	cwd = req.CWD
+	if pending, ok := s.state.GetPending(window); ok {
+		toolName = pending.ToolName
+		input = pending.Input
+		if pending.CWD != "" {
+			cwd = pending.CWD
+		}
+	}
+	return toolName, input, cwd
+}
+
+// dispatchToolNotification builds a ToolNotification, enqueues it to disk,
+// publishes it to the in-process broker, and spawns a tmux display-popup.
+func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
+	// Detect max option from Claude's permission dialog.
+	// Use bare window ID (e.g., "@1") — tmux resolves it across sessions.
+	maxOpt := 3
+	if content, capErr := s.tmux.CapturePaneANSI(context.Background(), window); capErr == nil {
+		maxOpt = tmuxadapter.DetectMaxOption(content)
+	}
+
+	// Write notification file for TUI overlay fallback (SSH remote compat).
+	n := model.ToolNotification{
+		ToolName:  toolName,
+		Input:     input,
+		CWD:       cwd,
+		Window:    window,
+		Timestamp: time.Now(),
+		MaxOption: maxOpt,
+	}
+	if err := notify.Enqueue(s.config.RuntimeDir, n); err != nil {
+		s.log.Printf("notify: write notification: %v", err)
+	}
+
+	// Publish to in-process broker for fast local GUI notification.
+	// Non-blocking: if no subscriber is ready, the event is dropped.
+	s.notifyBroker.Publish(model.Event{Notification: &n})
+
+	// Spawn tmux display-popup (non-blocking)
+	s.popupOrch.SpawnToolPopup(context.Background(), window, toolName, input, cwd)
 }
 
 func (s *Server) writePortFile(port int) error {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -10,7 +11,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KEMSHlM/lazyclaude/internal/adapter/tmuxadapter"
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
+	"github.com/KEMSHlM/lazyclaude/internal/core/event"
+	"github.com/KEMSHlM/lazyclaude/internal/core/lifecycle"
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/gui"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
@@ -30,9 +35,16 @@ func newRootCmd() *cobra.Command {
 		Long:    "lazyclaude is a terminal UI for managing Claude Code sessions, inspired by lazygit.",
 		Version: fmt.Sprintf("%s (%s)", version, commit),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			lc := lifecycle.New()
+			defer lc.Close()
+
 			var logger *slog.Logger
 			paths := config.DefaultPaths()
-			tmuxClient := tmux.NewExecClientWithSocket("lazyclaude")
+			tmuxSocket := "lazyclaude"
+			if s := os.Getenv("LAZYCLAUDE_TMUX_SOCKET"); s != "" {
+				tmuxSocket = s
+			}
+			tmuxClient := tmux.NewExecClientWithSocket(tmuxSocket)
 
 			if debug {
 				dest := logFile
@@ -68,13 +80,27 @@ func newRootCmd() *cobra.Command {
 			// Skip Claude onboarding dialogs (JSON file I/O only, no subprocess)
 			mgr.EnsureClaudeConfigured(".")
 
-			// Ensure MCP server is running
-			ensureMCPServer()
+			// Start the MCP server: prefer in-process so the broker can be wired
+			// directly to the GUI for immediate popup delivery (no 100ms poll delay).
+			// Falls back to a subprocess if the server is already running as a daemon.
+			var notifyBroker *event.Broker[model.Event]
+			inProcessSrv := tryStartInProcessServer(paths, tmuxClient, logger)
+			if inProcessSrv != nil {
+				notifyBroker = inProcessSrv.NotifyBroker()
+				lc.Register("mcp-server", func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					inProcessSrv.Stop(ctx) //nolint:errcheck
+				})
+			} else {
+				// Server already running as a subprocess daemon.
+				ensureMCPServer()
+			}
 
 			// Start background GC to remove dead/orphan sessions
 			gc := session.NewGC(mgr, 2*time.Second)
 			gc.Start()
-			defer gc.Stop()
+			lc.Register("gc", gc.Stop)
 
 			adapter := &sessionAdapter{mgr: mgr, tmux: tmuxClient, paths: paths}
 
@@ -83,6 +109,9 @@ func newRootCmd() *cobra.Command {
 				return fmt.Errorf("init TUI: %w", err)
 			}
 			app.SetSessions(adapter)
+
+			// Wire the notify broker (nil-safe: falls back to file polling only).
+			app.SetNotifyBroker(notifyBroker)
 
 			// Key forwarding via subprocess
 			app.SetInputForwarder(gui.NewTmuxInputForwarder(tmuxClient))
@@ -97,7 +126,7 @@ func newRootCmd() *cobra.Command {
 			}
 			ctrlMgr.tryConnect()
 			app.SetOnTick(ctrlMgr.ensureConnected)
-			defer ctrlMgr.close()
+			lc.Register("control-client", ctrlMgr.close)
 
 			return app.Run()
 		},
@@ -112,6 +141,57 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newSetupCmd())
 
 	return cmd
+}
+
+// tryStartInProcessServer attempts to start the MCP server inside the current
+// process so the notify broker can be wired directly to the GUI for immediate
+// event delivery. Returns the server if started successfully, or nil when an
+// external server is already alive (the caller should fall back to ensureMCPServer).
+func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, logger *slog.Logger) *server.Server {
+	// If an external server is already alive, do not start a second one.
+	result, err := server.EnsureServer(server.EnsureOpts{
+		Binary:   os.Args[0],
+		PortFile: paths.PortFile(),
+	})
+	if err == nil && !result.Started {
+		// External server is alive; leave it running and skip in-process.
+		return nil
+	}
+
+	token, err := generateToken()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: generate server token: %v\n", err)
+		return nil
+	}
+
+	binaryPath := os.Args[0]
+	if b := os.Getenv("LAZYCLAUDE_POPUP_BINARY"); b != "" {
+		binaryPath = b
+	}
+
+	var srvLogger *log.Logger
+	if logger != nil {
+		// Adapt slog to stdlib log for the server (which uses log.Logger).
+		srvLogger = log.New(os.Stderr, "lazyclaude-srv: ", log.LstdFlags)
+	} else {
+		srvLogger = log.New(os.Stderr, "lazyclaude-srv: ", log.LstdFlags)
+	}
+
+	cfg := server.Config{
+		Port:       0, // random port
+		Token:      token,
+		BinaryPath: binaryPath,
+		IDEDir:     paths.IDEDir,
+		PortFile:   paths.PortFile(),
+		RuntimeDir: paths.RuntimeDir,
+	}
+
+	srv := server.New(cfg, tmuxClient, srvLogger)
+	if _, err := srv.Start(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: start in-process MCP server: %v\n", err)
+		return nil
+	}
+	return srv
 }
 
 // ensureMCPServer starts the MCP server if not already running.
@@ -234,7 +314,7 @@ func (a *sessionAdapter) PurgeOrphans() (int, error) {
 	return a.mgr.PurgeOrphans()
 }
 
-func (a *sessionAdapter) PendingNotifications() []*notify.ToolNotification {
+func (a *sessionAdapter) PendingNotifications() []*model.ToolNotification {
 	notifications, err := notify.ReadAll(a.paths.RuntimeDir)
 	if err != nil || len(notifications) == 0 {
 		return nil
@@ -242,28 +322,8 @@ func (a *sessionAdapter) PendingNotifications() []*notify.ToolNotification {
 	return notifications
 }
 
-// choiceToKey maps a GUI choice to the key Claude Code expects.
-// Claude Code's permission dialog shows numbered options (1=Yes, 2=Allow, 3=No).
-// Single-key press selects immediately (no Enter needed).
-var choiceToKey = map[gui.Choice]string{
-	gui.ChoiceAccept: "1",
-	gui.ChoiceAllow:  "2",
-	gui.ChoiceReject: "3",
-	gui.ChoiceCancel: "Escape",
-}
-
-func (a *sessionAdapter) SendChoice(window string, choice gui.Choice) error {
-	key, ok := choiceToKey[choice]
-	if !ok {
-		key = "Escape"
-	}
-	// window is a bare tmux window ID (e.g., "@3") from State.WindowForPID.
-	// Prepend session name only if not already present.
-	target := window
-	if !strings.Contains(window, ":") {
-		target = "lazyclaude:" + window
-	}
-	return a.tmux.SendKeys(context.Background(), target, key)
+func (a *sessionAdapter) SendChoice(window string, c gui.Choice) error {
+	return tmuxadapter.SendToPane(context.Background(), a.tmux, window, c)
 }
 
 // controlManager handles control mode connection lifecycle.

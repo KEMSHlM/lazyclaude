@@ -9,6 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// --- Benchmarks ---
+
+func BenchmarkParseToolInput_Bash(b *testing.B) {
+	for b.Loop() {
+		presentation.ParseToolInput("Bash", `{"command":"npm test -- --coverage"}`, "/home/user/app")
+	}
+}
+
+func BenchmarkFormatToolLines(b *testing.B) {
+	td := presentation.ToolDisplay{
+		Name:  "Bash",
+		CWD:   "/home/user/app",
+		Lines: []string{"npm test -- --coverage", "echo done"},
+	}
+	for b.Loop() {
+		presentation.FormatToolLines(td)
+	}
+}
+
 func TestParseToolInput_Bash(t *testing.T) {
 	t.Parallel()
 	td := presentation.ParseToolInput("Bash", `{"command":"npm test -- --coverage"}`, "/home/user/app")
@@ -82,8 +101,8 @@ func TestFormatToolLines_Bash(t *testing.T) {
 
 	joined := strings.Join(lines, "\n")
 	assert.Contains(t, joined, "Command:")
-	assert.Contains(t, joined, "$ npm test")
-	assert.Contains(t, joined, "CWD: /home/user/app")
+	assert.Contains(t, joined, "npm test") // content present (may have ANSI around $)
+	assert.Contains(t, joined, "/home/user/app")
 }
 
 func TestFormatToolLines_NoCWD(t *testing.T) {
@@ -95,7 +114,7 @@ func TestFormatToolLines_NoCWD(t *testing.T) {
 
 	lines := presentation.FormatToolLines(td)
 	joined := strings.Join(lines, "\n")
-	assert.NotContains(t, joined, "CWD:")
+	assert.NotContains(t, joined, "/home") // no CWD path when not set
 }
 
 func TestFormatToolLines_NonBash(t *testing.T) {

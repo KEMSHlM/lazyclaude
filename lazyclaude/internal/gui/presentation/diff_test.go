@@ -19,6 +19,21 @@ const sampleDiff = `diff --git a/main.go b/main.go
  	fmt.Println("after")
 `
 
+// --- Benchmarks ---
+
+func BenchmarkParseUnifiedDiff(b *testing.B) {
+	for b.Loop() {
+		presentation.ParseUnifiedDiff(sampleDiff)
+	}
+}
+
+func BenchmarkFormatDiffLine(b *testing.B) {
+	dl := presentation.DiffLine{Kind: presentation.DiffAdd, Content: "\tfmt.Println(\"hello, world\")", NewNum: 42}
+	for b.Loop() {
+		presentation.FormatDiffLine(dl, 4)
+	}
+}
+
 func TestParseUnifiedDiff_Basic(t *testing.T) {
 	t.Parallel()
 	lines := presentation.ParseUnifiedDiff(sampleDiff)

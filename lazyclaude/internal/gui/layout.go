@@ -6,8 +6,108 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
 	"github.com/jesseduffield/gocui"
 )
+
+// roundedFrame is the set of runes for rounded border corners.
+// Order: horizontal, vertical, top-left, top-right, bottom-left, bottom-right.
+var roundedFrame = []rune{'─', '│', '╭', '╮', '╰', '╯'}
+
+// setRoundedFrame applies rounded border corners to a gocui view.
+func setRoundedFrame(v *gocui.View) {
+	v.FrameRunes = roundedFrame
+}
+
+// Rect is a simple rectangle from (X0, Y0) to (X1, Y1) inclusive,
+// matching gocui's SetView coordinate convention.
+type Rect struct {
+	X0, Y0, X1, Y1 int
+}
+
+// Width returns the number of columns the rectangle spans.
+func (r Rect) Width() int {
+	return r.X1 - r.X0
+}
+
+// Height returns the number of rows the rectangle spans.
+func (r Rect) Height() int {
+	return r.Y1 - r.Y0
+}
+
+// Layout holds pre-computed view positions for the main screen.
+type Layout struct {
+	Sessions Rect // upper-left panel
+	Server   Rect // lower-left panel
+	Main     Rect // right panel (preview)
+	Options  Rect // bottom bar
+	Compact  bool // true when terminal is too narrow for a split
+}
+
+// CompactThreshold is the terminal width below which compact mode activates.
+const CompactThreshold = 60
+
+// ComputeLayout calculates view positions for the given terminal size.
+// It mirrors the inline coordinate logic from layoutMain exactly.
+func ComputeLayout(width, height int) Layout {
+	maxX := width
+	maxY := height
+
+	splitX := maxX / 3
+	if splitX < 20 {
+		splitX = 20
+	}
+	if splitX >= maxX-10 {
+		splitX = maxX / 2
+	}
+
+	compact := width < CompactThreshold
+
+	leftMidY := (maxY - 2) * 2 / 3
+
+	sessions := Rect{X0: 0, Y0: 0, X1: splitX - 1, Y1: leftMidY}
+	server := Rect{X0: 0, Y0: leftMidY + 1, X1: splitX - 1, Y1: maxY - 2}
+	main := Rect{X0: splitX, Y0: 0, X1: maxX - 1, Y1: maxY - 2}
+	options := Rect{X0: 0, Y0: maxY - 2, X1: maxX - 1, Y1: maxY}
+
+	return Layout{
+		Sessions: sessions,
+		Server:   server,
+		Main:     main,
+		Options:  options,
+		Compact:  compact,
+	}
+}
+
+// ComputeFullScreenLayout calculates view positions for full-screen mode.
+// The main panel takes the full terminal width; a status bar sits at the bottom.
+func ComputeFullScreenLayout(width, height int) Layout {
+	maxX := width
+	maxY := height
+
+	main := Rect{X0: 0, Y0: 0, X1: maxX - 1, Y1: maxY - 2}
+	statusBar := Rect{X0: 0, Y0: maxY - 2, X1: maxX - 1, Y1: maxY}
+
+	return Layout{
+		Main:    main,
+		Options: statusBar,
+	}
+}
+
+// ComputePopupLayout calculates view positions for popup (diff/tool) mode.
+// The content area fills all but the last two rows; the actions bar occupies the bottom.
+func ComputePopupLayout(width, height int) Layout {
+	maxX := width
+	maxY := height
+
+	content := Rect{X0: 0, Y0: 0, X1: maxX - 1, Y1: maxY - 3}
+	actions := Rect{X0: 0, Y0: maxY - 2, X1: maxX - 1, Y1: maxY}
+
+	return Layout{
+		Main:    content,
+		Options: actions,
+	}
+}
 
 // ActiveTabIdx returns the active side panel tab index.
 func (a *App) ActiveTabIdx() int {
@@ -27,7 +127,7 @@ func (a *App) layout(g *gocui.Gui) error {
 
 	// Detect terminal resize -> clear preview cache
 	if maxX != a.lastWidth || maxY != a.lastHeight {
-		a.previewCache = ""
+		a.preview.Invalidate()
 		a.lastWidth = maxX
 		a.lastHeight = maxY
 	}
@@ -55,25 +155,17 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	g.Cursor = false
 	fmt.Fprint(os.Stdout, "\033[0 q") // restore default cursor
 
-	splitX := maxX / 3
-	if splitX < 20 {
-		splitX = 20
-	}
-	if splitX >= maxX-10 {
-		splitX = maxX / 2
-	}
+	l := ComputeLayout(maxX, maxY)
 
 	tabs := SideTabs()
 	tabTitle := " " + TabBar(tabs, a.activeTabIdx) + " "
 
-	// Left side panel: split into upper (sessions) and lower (server)
-	leftMidY := (maxY - 2) * 2 / 3
-
 	// Sessions view (upper left)
-	v, err := g.SetView("sessions", 0, 0, splitX-1, leftMidY, 0)
+	v, err := g.SetView("sessions", l.Sessions.X0, l.Sessions.Y0, l.Sessions.X1, l.Sessions.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
+	setRoundedFrame(v)
 	v.Title = tabTitle
 	v.Highlight = true
 	v.SelBgColor = gocui.ColorBlue
@@ -87,10 +179,11 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	a.renderSessionList(v, items)
 
 	// Server view (lower left)
-	v2, err := g.SetView("server", 0, leftMidY+1, splitX-1, maxY-2, 0)
+	v2, err := g.SetView("server", l.Server.X0, l.Server.Y0, l.Server.X1, l.Server.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
+	setRoundedFrame(v2)
 	v2.Title = " Server "
 	v2.Wrap = true
 	if isUnknownView(err) {
@@ -98,26 +191,36 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	}
 
 	// Main panel (right side)
-	v3, err := g.SetView("main", splitX, 0, maxX-1, maxY-2, 0)
+	v3, err := g.SetView("main", l.Main.X0, l.Main.Y0, l.Main.X1, l.Main.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
+	setRoundedFrame(v3)
 	v3.Wrap = false
 	v3.Editable = false
 	v3.Clear()
-	// Pass preview panel inner dimensions (exclude borders)
-	previewW := maxX - splitX - 2
-	previewH := maxY - 4
+	// Pass preview panel inner dimensions (exclude borders).
+	// Width: gocui border takes 1 col on each side of the right panel.
+	// Height: top border + bottom border + options bar = 2 top + 2 bottom rows.
+	previewW := l.Main.Width() - 1
+	previewH := l.Main.Height() - 2
 	a.renderPreview(v3, items, previewW, previewH)
 
 	// Options bar (bottom, frameless)
-	v4, err := g.SetView("options", 0, maxY-2, maxX-1, maxY, 0)
+	v4, err := g.SetView("options", l.Options.X0, l.Options.Y0, l.Options.X1, l.Options.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
 	v4.Frame = false
 	if isUnknownView(err) {
-		fmt.Fprint(v4, " n: new  d: del  enter: full  r: resume  R: rename  q: quit")
+		fmt.Fprint(v4, " ",
+			presentation.StyledKey("n", "new"), "  ",
+			presentation.StyledKey("d", "del"), "  ",
+			presentation.StyledKey("enter", "full"), "  ",
+			presentation.StyledKey("r", "resume"), "  ",
+			presentation.StyledKey("R", "rename"), "  ",
+			presentation.StyledKey("q", "quit"),
+		)
 	}
 
 	// Set focus to active tab's view
@@ -134,8 +237,10 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	g.DeleteView("server")
 	g.DeleteView("options")
 
+	l := ComputeFullScreenLayout(maxX, maxY)
+
 	// Full-screen main view
-	v, err := g.SetView("main", 0, 0, maxX-1, maxY-2, 0)
+	v, err := g.SetView("main", l.Main.X0, l.Main.Y0, l.Main.X1, l.Main.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
@@ -163,25 +268,25 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 		a.exitFullScreen()
 		return nil
 	}
-	previewW := maxX - 2
-	previewH := maxY - 3
+	// Inner dimensions: subtract borders (1 col each side, 1 row each side).
+	previewW := l.Main.Width() - 1
+	previewH := l.Main.Height() - 1
 	a.renderPreview(v, items, previewW, previewH)
 
 	// Scroll offset for mouse scroll
 	v.SetOrigin(0, a.fullScreenScrollY)
 
 	// Status bar
-	v2, err := g.SetView("fullscreen-bar", 0, maxY-2, maxX-1, maxY, 0)
+	v2, err := g.SetView("fullscreen-bar", l.Options.X0, l.Options.Y0, l.Options.X1, l.Options.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
 	v2.Frame = false
 	v2.Clear()
-	if a.state == StateFullInsert {
-		fmt.Fprintf(v2, " INSERT | %s | Ctrl+\\: normal mode", items[targetIdx].Name)
-	} else {
-		fmt.Fprintf(v2, " NORMAL | %s | i: insert  q: exit  j/k: scroll", items[targetIdx].Name)
-	}
+	fmt.Fprintf(v2, " %s %s %s",
+		items[targetIdx].Name,
+		presentation.FgDimGray+presentation.IconSep+presentation.Reset,
+		presentation.Dim+"Ctrl+\\:exit"+presentation.Reset)
 
 	if _, err := g.SetCurrentView("main"); err != nil && !isUnknownView(err) {
 		return err
@@ -190,15 +295,18 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 }
 
 func (a *App) layoutPopup(g *gocui.Gui, maxX, maxY int) error {
+	l := ComputePopupLayout(maxX, maxY)
+
 	// Content area (top)
-	v, err := g.SetView("content", 0, 0, maxX-1, maxY-3, 0)
+	v, err := g.SetView("content", l.Main.X0, l.Main.Y0, l.Main.X1, l.Main.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
+	setRoundedFrame(v)
 	v.Wrap = false
 
 	// Actions bar (bottom)
-	v2, err := g.SetView("actions", 0, maxY-2, maxX-1, maxY, 0)
+	v2, err := g.SetView("actions", l.Options.X0, l.Options.Y0, l.Options.X1, l.Options.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
@@ -215,17 +323,24 @@ func (a *App) layoutPopup(g *gocui.Gui, maxX, maxY int) error {
 
 func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previewH int) {
 	if items == nil {
-		v.Title = " Main "
+		v.Title = " Preview "
 		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, "  lazyclaude")
-		fmt.Fprintln(v, "  A standalone TUI for Claude Code")
+		fmt.Fprintln(v, presentation.Bold+"  lazyclaude"+presentation.Reset)
+		fmt.Fprintln(v, presentation.Dim+"  A standalone TUI for Claude Code"+presentation.Reset)
+		fmt.Fprintln(v, "")
+		fmt.Fprintln(v, presentation.FgDimGray+"  "+presentation.IconRunning+" running  "+
+			presentation.IconDetached+" detached  "+
+			presentation.IconDead+" dead  "+
+			presentation.IconOrphan+" orphan"+presentation.Reset)
 		return
 	}
 
 	if len(items) == 0 || a.cursor >= len(items) {
-		v.Title = " Main "
+		v.Title = " Preview "
 		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, "  Select a session or press 'n' to create one.")
+		fmt.Fprintln(v, presentation.Dim+"  Select a session or press "+
+			presentation.Reset+presentation.Bold+"n"+presentation.Reset+
+			presentation.Dim+" to create one."+presentation.Reset)
 		return
 	}
 
@@ -234,40 +349,37 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 
 	if item.Status == "Orphan" {
 		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, "  Session not found in tmux.")
-		fmt.Fprintln(v, "  Press 'd' to remove.")
+		fmt.Fprintln(v, presentation.FgYellow+"  "+presentation.IconOrphan+" Session not found in tmux."+presentation.Reset)
+		fmt.Fprintln(v, "  Press "+presentation.Bold+"d"+presentation.Reset+" to remove.")
 		return
 	}
 
 	// Async preview: launch capture in background, render from cache
-	a.previewMu.Lock()
-	cache := a.previewCache
-	cachedCursor := a.previewCursor
-	stale := time.Since(a.previewTime) > 500*time.Millisecond
+	a.preview.Lock()
+	cache := a.preview.Content()
+	cachedCursor := a.preview.Cursor()
+	stale := a.preview.Stale(500 * time.Millisecond)
 	// Only fetch if: not busy, AND (cursor changed OR cache is stale).
-	// Do NOT use previewCache=="" as a trigger — empty capture results
+	// Do NOT use cache=="" as a trigger — empty capture results
 	// (Claude Code starting up) would cause a tight fetch loop.
-	needFetch := !a.previewBusy && (a.previewCursor != a.cursor || stale)
+	needFetch := !a.preview.Busy() && (a.preview.Cursor() != a.cursor || stale)
 	if needFetch {
-		a.previewBusy = true
+		a.preview.SetBusy(true)
 	}
-	a.previewMu.Unlock()
+	a.preview.Unlock()
 
 	if needFetch {
 		id := item.ID
 		cursorSnapshot := a.cursor
 		go func() {
 			result, err := a.sessions.CapturePreview(id, previewW, previewH)
-			a.previewMu.Lock()
-			a.previewCursor = cursorSnapshot
+			a.preview.Lock()
 			if err == nil && strings.TrimSpace(result.Content) != "" {
-				a.previewCache = result.Content
-				a.paneCursorX = result.CursorX
-				a.paneCursorY = result.CursorY
+				a.preview.Update(result.Content, cursorSnapshot, result.CursorX, result.CursorY)
+			} else {
+				a.preview.MarkFetched()
 			}
-			a.previewBusy = false
-			a.previewTime = time.Now()
-			a.previewMu.Unlock()
+			a.preview.Unlock()
 			a.gui.Update(func(g *gocui.Gui) error { return nil })
 		}()
 	}
@@ -275,7 +387,9 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 	if cache != "" && cachedCursor == a.cursor {
 		fmt.Fprint(v, cache)
 		if a.state.IsFullScreen() {
-			v.SetCursor(a.paneCursorX, a.paneCursorY)
+			a.preview.Lock()
+			v.SetCursor(a.preview.CursorX(), a.preview.CursorY())
+			a.preview.Unlock()
 		}
 		return
 	}
@@ -288,9 +402,10 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 
 func (a *App) renderSessionList(v *gocui.View, items []SessionItem) {
 	if len(items) == 0 {
-		fmt.Fprintln(v, "  (no sessions)")
 		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, "  Press 'n' to create")
+		fmt.Fprintln(v, presentation.Dim+"  No sessions"+presentation.Reset)
+		fmt.Fprintln(v, "")
+		fmt.Fprintln(v, "  Press "+presentation.Bold+"n"+presentation.Reset+" to create")
 		return
 	}
 
@@ -304,26 +419,26 @@ func (a *App) renderSessionList(v *gocui.View, items []SessionItem) {
 	for i, item := range items {
 		prefix := "  "
 		if i == a.cursor {
-			prefix = "> "
+			prefix = presentation.FgCyan + presentation.Bold + "> " + presentation.Reset
 		}
 
-		status := ""
+		var icon string
 		switch item.Status {
 		case "Running":
-			status = " *"
+			icon = " " + presentation.IconRunning
 		case "Dead":
-			status = " !"
+			icon = " " + presentation.IconDead
 		case "Orphan":
-			status = " x"
+			icon = " " + presentation.IconOrphan
 		case "Detached":
-			status = " -"
+			icon = " " + presentation.IconDetached
 		}
 
 		name := item.Name
 		if item.Host != "" {
-			name = item.Host + ":" + name
+			name = presentation.FgPurple + item.Host + presentation.Reset + ":" + name
 		}
-		fmt.Fprintf(v, "%s%-20s%s\n", prefix, name, status)
+		fmt.Fprintf(v, "%s%-20s%s\n", prefix, name, icon)
 	}
 
 	v.SetCursor(0, a.cursor)

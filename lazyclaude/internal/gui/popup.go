@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -16,19 +16,16 @@ const popupViewName = "tool-popup"
 const popupActionsViewName = "tool-popup-actions"
 
 // showToolPopup pushes a notification onto the popup stack.
-func (a *App) showToolPopup(n *notify.ToolNotification) {
-	a.popups.Push(n)
+func (a *App) showToolPopup(n *model.ToolNotification) {
+	a.popups.PushPopup(newPopupFromNotification(n))
 }
 
-// dismissPopup sends the choice to the focused popup and removes it from the stack.
+// dismissPopup removes the focused popup from the stack and sends the choice to the session.
 func (a *App) dismissPopup(choice Choice) {
-	active := a.popups.ActiveNotification()
-	if active == nil {
+	window := a.popups.DismissActive(choice)
+	if window == "" {
 		return
 	}
-	window := active.Window
-	a.popups.DismissActive(choice)
-
 	if a.sessions != nil {
 		go func() {
 			_ = a.sessions.SendChoice(window, choice)
@@ -36,20 +33,16 @@ func (a *App) dismissPopup(choice Choice) {
 	}
 }
 
-// dismissAllPopups sends the choice to all popups and clears the stack.
+// dismissAllPopups clears the stack and sends the choice to all sessions.
 func (a *App) dismissAllPopups(choice Choice) {
-	stack := a.popups.Stack()
-	if len(stack) == 0 {
+	windows := a.popups.DismissAll(choice)
+	if len(windows) == 0 {
 		return
 	}
-	entries := make([]popupEntry, len(stack))
-	copy(entries, stack)
-	a.popups.DismissAll(choice)
-
 	if a.sessions != nil {
 		go func() {
-			for _, e := range entries {
-				_ = a.sessions.SendChoice(e.notification.Window, choice)
+			for _, w := range windows {
+				_ = a.sessions.SendChoice(w, choice)
 			}
 		}()
 	}
@@ -100,12 +93,13 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 		if err != nil && !isUnknownView(err) {
 			return err
 		}
+		setRoundedFrame(v)
 		v.Clear()
 
-		if e.notification.IsDiff() {
-			a.renderDiffPopup(v, e)
+		if e.popup.IsDiff() {
+			a.renderDiffPopup(v, e.popup)
 		} else {
-			a.renderToolPopup(v, e.notification)
+			a.renderToolPopup(v, e.popup)
 		}
 
 		if i == a.popups.FocusIndex() {
@@ -140,15 +134,23 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 		g.SetViewOnTop(popupActionsViewName)
 
 		visible := a.popups.VisibleCount()
-		n := focusedEntry.notification
+		p := focusedEntry.popup
 
-		base := " y/a/n"
-		if n.IsDiff() {
-			base += " j/k:scroll"
+		maxOpt := p.MaxOption()
+		base := " " + presentation.StyledKey("y", "yes") + "  " + presentation.StyledKey("n", "no")
+		if maxOpt >= 3 {
+			base = " " + presentation.StyledKey("y", "yes") + "  " +
+				presentation.StyledKey("a", "allow") + "  " +
+				presentation.StyledKey("n", "no")
 		}
-		base += " Esc:hide"
+		if p.IsDiff() {
+			base += "  " + presentation.StyledKey("j/k", "scroll")
+		}
+		base += "  " + presentation.StyledKey("Esc", "hide")
 		if visible > 1 {
-			base += fmt.Sprintf(" Y:all [%d/%d]", a.popups.VisibleIndexOf(a.popups.FocusIndex())+1, visible)
+			base += fmt.Sprintf("  "+presentation.StyledKey("Y", "all")+
+				" "+presentation.Dim+"[%d/%d]"+presentation.Reset,
+				a.popups.VisibleIndexOf(a.popups.FocusIndex())+1, visible)
 		}
 		fmt.Fprint(v2, base)
 
@@ -172,23 +174,22 @@ func (a *App) cleanupPopupViews(g *gocui.Gui) {
 	}
 }
 
-func (a *App) renderToolPopup(v *gocui.View, n *notify.ToolNotification) {
-	v.Title = fmt.Sprintf(" %s ", n.ToolName)
-	td := presentation.ParseToolInput(n.ToolName, n.Input, n.CWD)
-	for _, line := range presentation.FormatToolLines(td) {
+func (a *App) renderToolPopup(v *gocui.View, p Popup) {
+	v.Title = p.Title()
+	for _, line := range p.ContentLines() {
 		fmt.Fprintln(v, line)
 	}
 }
 
-func (a *App) renderDiffPopup(v *gocui.View, entry *popupEntry) {
-	n := entry.notification
-	v.Title = fmt.Sprintf(" Diff: %s ", filepath.Base(n.OldFilePath))
+func (a *App) renderDiffPopup(v *gocui.View, p Popup) {
+	v.Title = p.Title()
 
-	diffLines, diffKinds := getDiffLinesForEntry(entry)
+	diffLines := p.ContentLines()
+	diffKinds := p.ContentKinds()
 	_, viewH := v.Size()
 	visibleLines := viewH - 1
 
-	start := entry.scrollY
+	start := p.ScrollY()
 	end := start + visibleLines
 	if end > len(diffLines) {
 		end = len(diffLines)
@@ -213,27 +214,6 @@ func (a *App) renderDiffPopup(v *gocui.View, entry *popupEntry) {
 			fmt.Fprintln(v, line)
 		}
 	}
-}
-
-func getDiffLinesForEntry(entry *popupEntry) ([]string, []presentation.DiffLineKind) {
-	if entry.diffCache != nil {
-		return entry.diffCache, entry.diffKinds
-	}
-
-	n := entry.notification
-	diffOutput := generateDiffFromContents(n.OldFilePath, n.NewContents)
-	parsed := presentation.ParseUnifiedDiff(diffOutput)
-
-	lines := make([]string, len(parsed))
-	kinds := make([]presentation.DiffLineKind, len(parsed))
-	for i, dl := range parsed {
-		lines[i] = presentation.FormatDiffLine(dl, 4)
-		kinds[i] = dl.Kind
-	}
-
-	entry.diffCache = lines
-	entry.diffKinds = kinds
-	return lines, kinds
 }
 
 func generateDiffFromContents(oldFilePath, newContents string) string {
@@ -275,18 +255,18 @@ func generateDiffFromContents(oldFilePath, newContents string) string {
 
 // --- App delegation to PopupController ---
 
-func (a *App) hasPopup() bool                          { return a.popups.HasVisible() }
-func (a *App) popupCount() int                         { return a.popups.Count() }
-func (a *App) visiblePopupCount() int                  { return a.popups.VisibleCount() }
-func (a *App) activePopup() *notify.ToolNotification   { return a.popups.ActiveNotification() }
-func (a *App) activeEntry() *popupEntry                { return a.popups.ActiveEntry() }
-func (a *App) pushPopup(n *notify.ToolNotification)    { a.popups.Push(n) }
-func (a *App) dismissActivePopup()                     { a.popups.DismissActive(ChoiceCancel) }
-func (a *App) popupFocusNext()                         { a.popups.FocusNext() }
-func (a *App) popupFocusPrev()                         { a.popups.FocusPrev() }
-func (a *App) suspendAllPopups()                       { a.popups.SuspendAll() }
-func (a *App) unsuspendAll()                           { a.popups.UnsuspendAll() }
-func (a *App) visibleIndexOf(stackIdx int) int         { return a.popups.VisibleIndexOf(stackIdx) }
+func (a *App) hasPopup() bool                              { return a.popups.HasVisible() }
+func (a *App) popupCount() int                             { return a.popups.Count() }
+func (a *App) visiblePopupCount() int                      { return a.popups.VisibleCount() }
+func (a *App) activePopup() *model.ToolNotification        { return a.popups.ActiveNotification() }
+func (a *App) activeEntry() *popupEntry                    { return a.popups.ActiveEntry() }
+func (a *App) pushPopup(n *model.ToolNotification)         { a.popups.PushPopup(newPopupFromNotification(n)) }
+func (a *App) dismissActivePopup()                         { a.popups.DismissActive(ChoiceCancel) }
+func (a *App) popupFocusNext()                             { a.popups.FocusNext() }
+func (a *App) popupFocusPrev()                             { a.popups.FocusPrev() }
+func (a *App) suspendAllPopups()                           { a.popups.SuspendAll() }
+func (a *App) unsuspendAll()                               { a.popups.UnsuspendAll() }
+func (a *App) visibleIndexOf(stackIdx int) int             { return a.popups.VisibleIndexOf(stackIdx) }
 
 func popupCascadeOffset(baseX, baseY, index int) (int, int) {
 	return baseX + index*2, baseY + index

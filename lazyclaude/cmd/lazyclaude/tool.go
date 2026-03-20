@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/KEMSHlM/lazyclaude/internal/adapter/tmuxadapter"
+	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
-	"github.com/KEMSHlM/lazyclaude/internal/gui"
+	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
 	"github.com/jesseduffield/gocui"
 	"github.com/spf13/cobra"
@@ -14,6 +17,7 @@ import (
 
 func newToolCmd() *cobra.Command {
 	var window string
+	var sendKeys bool
 
 	cmd := &cobra.Command{
 		Use:   "tool",
@@ -30,18 +34,32 @@ func newToolCmd() *cobra.Command {
 				toolInput = "{}"
 			}
 
-			return runToolPopup(window, toolName, toolInput, toolCWD)
+			return runToolPopup(window, toolName, toolInput, toolCWD, sendKeys)
 		},
 	}
 
 	cmd.Flags().StringVar(&window, "window", "", "tmux window name")
+	cmd.Flags().BoolVar(&sendKeys, "send-keys", false, "send choice key to Claude pane on exit")
 
 	return cmd
 }
 
-func runToolPopup(window, toolName, toolInput, toolCWD string) error {
+func runToolPopup(window, toolName, toolInput, toolCWD string, sendKeys bool) error {
 	td := presentation.ParseToolInput(toolName, toolInput, toolCWD)
 	bodyLines := presentation.FormatToolLines(td)
+
+	// Detect dialog option count from Claude's pane (before rendering our popup)
+	maxOption := 3
+	if window != "" {
+		client := tmux.NewExecClient()
+		target := window
+		if !strings.Contains(window, ":") {
+			target = "lazyclaude:" + window
+		}
+		if content, err := client.CapturePaneANSI(context.Background(), target); err == nil {
+			maxOption = tmuxadapter.DetectMaxOption(content)
+		}
+	}
 
 	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue})
 	if err != nil {
@@ -49,7 +67,7 @@ func runToolPopup(window, toolName, toolInput, toolCWD string) error {
 	}
 	defer g.Close()
 
-	choice := gui.ChoiceCancel
+	choiceVal := choice.Cancel
 
 	g.SetManagerFunc(func(g *gocui.Gui) error {
 		maxX, maxY := g.Size()
@@ -72,36 +90,50 @@ func runToolPopup(window, toolName, toolInput, toolCWD string) error {
 		}
 		v2.Frame = false
 		v2.Clear()
-		fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
+		if maxOption <= 2 {
+			fmt.Fprint(v2, " y: yes  n: no  Esc: cancel")
+		} else {
+			fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
+		}
 
+		g.SetCurrentView("content")
 		return nil
 	})
 
-	makeChoice := func(c gui.Choice) func(*gocui.Gui, *gocui.View) error {
+	makeChoice := func(c choice.Choice) func(*gocui.Gui, *gocui.View) error {
 		return func(g *gocui.Gui, v *gocui.View) error {
-			choice = c
+			choiceVal = c
 			return gocui.ErrQuit
 		}
 	}
 
-	bind := func(key interface{}, handler func(*gocui.Gui, *gocui.View) error) {
+	bind := func(key interface{}, handler func(*gocui.Gui, *gocui.View) error) error {
 		switch k := key.(type) {
 		case rune:
-			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
-				panic(fmt.Sprintf("keybinding %c: %v", k, err))
-			}
+			return g.SetKeybinding("", k, gocui.ModNone, handler)
 		case gocui.Key:
-			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
-				panic(fmt.Sprintf("keybinding %v: %v", k, err))
+			return g.SetKeybinding("", k, gocui.ModNone, handler)
+		}
+		return nil
+	}
+
+	for _, b := range []struct {
+		key     interface{}
+		handler func(*gocui.Gui, *gocui.View) error
+		cond    bool
+	}{
+		{'y', makeChoice(choice.Accept), true},
+		{'a', makeChoice(choice.Allow), maxOption > 2},
+		{'n', makeChoice(choice.Reject), true},
+		{gocui.KeyEsc, makeChoice(choice.Cancel), true},
+		{gocui.KeyCtrlC, makeChoice(choice.Cancel), true},
+	} {
+		if b.cond {
+			if err := bind(b.key, b.handler); err != nil {
+				return fmt.Errorf("keybinding: %w", err)
 			}
 		}
 	}
-
-	bind('y', makeChoice(gui.ChoiceAccept))
-	bind('a', makeChoice(gui.ChoiceAllow))
-	bind('n', makeChoice(gui.ChoiceReject))
-	bind(gocui.KeyEsc, makeChoice(gui.ChoiceCancel))
-	bind(gocui.KeyCtrlC, makeChoice(gui.ChoiceCancel))
 
 	if err := g.MainLoop(); err != nil && !strings.Contains(err.Error(), "quit") {
 		return err
@@ -112,8 +144,21 @@ func runToolPopup(window, toolName, toolInput, toolCWD string) error {
 		if err := os.MkdirAll(paths.RuntimeDir, 0o700); err != nil {
 			return fmt.Errorf("create runtime dir: %w", err)
 		}
-		if err := gui.WriteChoiceFile(paths, window, choice); err != nil {
+		if err := choice.WriteFile(paths, window, choiceVal); err != nil {
 			return fmt.Errorf("write choice: %w", err)
+		}
+	}
+
+	// Send the choice key directly to Claude Code's pane
+	if sendKeys && window != "" && choiceVal != choice.Cancel {
+		var client tmux.Client
+		if s := os.Getenv("LAZYCLAUDE_TMUX_SOCKET"); s != "" {
+			client = tmux.NewExecClientWithSocket(s)
+		} else {
+			client = tmux.NewExecClient()
+		}
+		if err := tmuxadapter.SendToPane(context.Background(), client, window, choiceVal); err != nil {
+			fmt.Fprintf(os.Stderr, "send-keys: %v\n", err)
 		}
 	}
 

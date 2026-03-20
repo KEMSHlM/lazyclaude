@@ -4,17 +4,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func makeNotif(tool, window string) *notify.ToolNotification {
-	return &notify.ToolNotification{ToolName: tool, Window: window}
+func makeNotif(tool, window string) *model.ToolNotification {
+	return &model.ToolNotification{ToolName: tool, Window: window}
 }
 
 func newTestApp() *App {
-	return &App{popups: NewPopupController(nil)}
+	return &App{popups: NewPopupController()}
 }
 
 // --- App-level popup tests ---
@@ -31,8 +31,8 @@ func TestApp_HasPopup(t *testing.T) {
 func TestApp_DismissPopup_RemovesFocusedOnly(t *testing.T) {
 	t.Parallel()
 	app := newTestApp()
-	app.showToolPopup(&notify.ToolNotification{ToolName: "Bash", Window: "lc-1", Timestamp: time.Now()})
-	app.showToolPopup(&notify.ToolNotification{ToolName: "Write", Window: "lc-2", Timestamp: time.Now()})
+	app.showToolPopup(&model.ToolNotification{ToolName: "Bash", Window: "lc-1", Timestamp: time.Now()})
+	app.showToolPopup(&model.ToolNotification{ToolName: "Write", Window: "lc-2", Timestamp: time.Now()})
 
 	app.dismissPopup(ChoiceAccept)
 	assert.True(t, app.hasPopup())
@@ -53,7 +53,7 @@ func TestApp_DismissPopup_NopWhenNoPopup(t *testing.T) {
 func TestApp_ShowToolPopup_SetsFields(t *testing.T) {
 	t.Parallel()
 	app := newTestApp()
-	n := &notify.ToolNotification{ToolName: "Edit", Input: `{"file_path":"/tmp/test.go"}`, CWD: "/home/user", Window: "lc-abc"}
+	n := &model.ToolNotification{ToolName: "Edit", Input: `{"file_path":"/tmp/test.go"}`, CWD: "/home/user", Window: "lc-abc"}
 	app.showToolPopup(n)
 
 	active := app.activePopup()
@@ -160,7 +160,7 @@ func TestPopup_ActiveEntry(t *testing.T) {
 
 	entry := app.activeEntry()
 	require.NotNil(t, entry)
-	assert.Equal(t, 0, entry.scrollY)
-	entry.scrollY = 5
-	assert.Equal(t, 5, app.activeEntry().scrollY)
+	assert.Equal(t, 0, entry.popup.ScrollY())
+	entry.popup.SetScrollY(5)
+	assert.Equal(t, 5, app.activeEntry().popup.ScrollY())
 }

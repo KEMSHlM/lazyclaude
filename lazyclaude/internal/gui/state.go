@@ -12,22 +12,19 @@ func (a *App) transition(to AppState) {
 
 	// Exit actions
 	switch from {
-	case StateFullInsert, StateFullNormal:
+	case StateFullScreen:
 		if !to.IsFullScreen() {
 			a.fullScreenTarget = ""
-			a.previewCache = ""
+			a.preview.Invalidate()
 		}
 	}
 
 	// Enter actions
 	switch to {
-	case StateFullInsert:
+	case StateFullScreen:
 		if !from.IsFullScreen() {
 			a.fullScreenScrollY = 0
-			a.previewMu.Lock()
-			a.previewCache = ""
-			a.previewTime = time.Time{}
-			a.previewMu.Unlock()
+			a.preview.Invalidate()
 		}
 	}
 
@@ -36,7 +33,7 @@ func (a *App) transition(to AppState) {
 
 func (a *App) enterFullScreen(sessionID string) {
 	a.fullScreenTarget = sessionID
-	a.transition(StateFullInsert)
+	a.transition(StateFullScreen)
 	if a.sessions != nil {
 		for i, item := range a.sessions.Sessions() {
 			if item.ID == sessionID {
@@ -53,7 +50,7 @@ func (a *App) exitFullScreen() {
 
 // resolveForwardTarget returns the tmux target for key forwarding.
 func (a *App) resolveForwardTarget() string {
-	if a.state != StateFullInsert || a.inputForwarder == nil || a.hasPopup() || a.sessions == nil {
+	if !a.state.IsFullScreen() || a.inputForwarder == nil || a.hasPopup() || a.sessions == nil {
 		return ""
 	}
 	items := a.sessions.Sessions()
@@ -95,9 +92,9 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 
 func (a *App) triggerRefreshAfterInput() {
 	a.fullScreenScrollY = 0
-	a.previewMu.Lock()
-	if !a.previewBusy && time.Since(a.previewTime) > 50*time.Millisecond {
-		a.previewTime = time.Time{}
+	a.preview.Lock()
+	if !a.preview.Busy() && a.preview.Stale(50*time.Millisecond) {
+		a.preview.InvalidateTimestamp()
 	}
-	a.previewMu.Unlock()
+	a.preview.Unlock()
 }

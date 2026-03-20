@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 
+	"github.com/KEMSHlM/lazyclaude/internal/adapter/tmuxadapter"
+	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
-	"github.com/KEMSHlM/lazyclaude/internal/gui"
+	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
 	"github.com/jesseduffield/gocui"
 	"github.com/spf13/cobra"
@@ -15,6 +18,7 @@ import (
 
 func newDiffCmd() *cobra.Command {
 	var window, oldFile, newFile string
+	var sendKeys bool
 
 	cmd := &cobra.Command{
 		Use:   "diff",
@@ -23,18 +27,32 @@ func newDiffCmd() *cobra.Command {
 			if oldFile == "" || newFile == "" {
 				return fmt.Errorf("--old and --new are required")
 			}
-			return runDiffPopup(window, oldFile, newFile)
+			return runDiffPopup(window, oldFile, newFile, sendKeys)
 		},
 	}
 
 	cmd.Flags().StringVar(&window, "window", "", "tmux window name")
 	cmd.Flags().StringVar(&oldFile, "old", "", "old file path")
 	cmd.Flags().StringVar(&newFile, "new", "", "new file contents path")
+	cmd.Flags().BoolVar(&sendKeys, "send-keys", false, "send choice key to Claude pane on exit")
 
 	return cmd
 }
 
-func runDiffPopup(window, oldFile, newFile string) error {
+func runDiffPopup(window, oldFile, newFile string, sendKeys bool) error {
+	// Detect dialog option count from Claude's pane
+	maxOption := 3
+	if window != "" {
+		client := tmux.NewExecClient()
+		target := window
+		if !strings.Contains(window, ":") {
+			target = "lazyclaude:" + window
+		}
+		if content, capErr := client.CapturePaneANSI(context.Background(), target); capErr == nil {
+			maxOption = tmuxadapter.DetectMaxOption(content)
+		}
+	}
+
 	// Generate diff using git diff
 	diffOutput, err := generateDiff(oldFile, newFile)
 	if err != nil {
@@ -55,7 +73,7 @@ func runDiffPopup(window, oldFile, newFile string) error {
 	defer g.Close()
 
 	scrollY := 0
-	choice := gui.ChoiceCancel
+	choiceVal := choice.Cancel
 
 	g.SetManagerFunc(func(g *gocui.Gui) error {
 		maxX, maxY := g.Size()
@@ -108,67 +126,91 @@ func runDiffPopup(window, oldFile, newFile string) error {
 		}
 		v2.Frame = false
 		v2.Clear()
-		fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
+		if maxOption <= 2 {
+			fmt.Fprint(v2, " y: yes  n: no  Esc: cancel")
+		} else {
+			fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
+		}
 
+		g.SetCurrentView("content")
 		return nil
 	})
 
-	makeChoice := func(c gui.Choice) func(*gocui.Gui, *gocui.View) error {
+	makeChoice := func(c choice.Choice) func(*gocui.Gui, *gocui.View) error {
 		return func(g *gocui.Gui, v *gocui.View) error {
-			choice = c
+			choiceVal = c
 			return gocui.ErrQuit
 		}
 	}
 
 	// Keybindings
-	bind := func(key interface{}, handler func(*gocui.Gui, *gocui.View) error) {
+	bind := func(key interface{}, handler func(*gocui.Gui, *gocui.View) error) error {
 		switch k := key.(type) {
 		case rune:
-			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
-				panic(fmt.Sprintf("keybinding %c: %v", k, err))
-			}
+			return g.SetKeybinding("", k, gocui.ModNone, handler)
 		case gocui.Key:
-			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
-				panic(fmt.Sprintf("keybinding %v: %v", k, err))
+			return g.SetKeybinding("", k, gocui.ModNone, handler)
+		}
+		return nil
+	}
+
+	for _, b := range []struct {
+		key     interface{}
+		handler func(*gocui.Gui, *gocui.View) error
+		cond    bool
+	}{
+		{'y', makeChoice(choice.Accept), true},
+		{'a', makeChoice(choice.Allow), maxOption > 2},
+		{'n', makeChoice(choice.Reject), true},
+		{gocui.KeyEsc, makeChoice(choice.Cancel), true},
+		{gocui.KeyCtrlC, makeChoice(choice.Cancel), true},
+	} {
+		if b.cond {
+			if err := bind(b.key, b.handler); err != nil {
+				return fmt.Errorf("keybinding: %w", err)
 			}
 		}
 	}
 
-	bind('y', makeChoice(gui.ChoiceAccept))
-	bind('a', makeChoice(gui.ChoiceAllow))
-	bind('n', makeChoice(gui.ChoiceReject))
-	bind(gocui.KeyEsc, makeChoice(gui.ChoiceCancel))
-	bind(gocui.KeyCtrlC, makeChoice(gui.ChoiceCancel))
-
-	// Scroll
-	bind('j', func(g *gocui.Gui, v *gocui.View) error {
-		if scrollY < len(formattedLines)-1 {
-			scrollY++
+	// Scroll bindings
+	scrollBinds := []struct {
+		key     interface{}
+		handler func(*gocui.Gui, *gocui.View) error
+	}{
+		{'j', func(g *gocui.Gui, v *gocui.View) error {
+			if scrollY < len(formattedLines)-1 {
+				scrollY++
+			}
+			return nil
+		}},
+		{'k', func(g *gocui.Gui, v *gocui.View) error {
+			if scrollY > 0 {
+				scrollY--
+			}
+			return nil
+		}},
+		{'d', func(g *gocui.Gui, v *gocui.View) error {
+			_, maxY := g.Size()
+			scrollY += (maxY - 5) / 2
+			if scrollY > len(formattedLines)-1 {
+				scrollY = len(formattedLines) - 1
+			}
+			return nil
+		}},
+		{'u', func(g *gocui.Gui, v *gocui.View) error {
+			_, maxY := g.Size()
+			scrollY -= (maxY - 5) / 2
+			if scrollY < 0 {
+				scrollY = 0
+			}
+			return nil
+		}},
+	}
+	for _, sb := range scrollBinds {
+		if err := bind(sb.key, sb.handler); err != nil {
+			return fmt.Errorf("scroll keybinding: %w", err)
 		}
-		return nil
-	})
-	bind('k', func(g *gocui.Gui, v *gocui.View) error {
-		if scrollY > 0 {
-			scrollY--
-		}
-		return nil
-	})
-	bind('d', func(g *gocui.Gui, v *gocui.View) error {
-		_, maxY := g.Size()
-		scrollY += (maxY - 5) / 2
-		if scrollY > len(formattedLines)-1 {
-			scrollY = len(formattedLines) - 1
-		}
-		return nil
-	})
-	bind('u', func(g *gocui.Gui, v *gocui.View) error {
-		_, maxY := g.Size()
-		scrollY -= (maxY - 5) / 2
-		if scrollY < 0 {
-			scrollY = 0
-		}
-		return nil
-	})
+	}
 
 	if err := g.MainLoop(); err != nil && !strings.Contains(err.Error(), "quit") {
 		return err
@@ -180,8 +222,21 @@ func runDiffPopup(window, oldFile, newFile string) error {
 		if err := os.MkdirAll(paths.RuntimeDir, 0o700); err != nil {
 			return fmt.Errorf("create runtime dir: %w", err)
 		}
-		if err := gui.WriteChoiceFile(paths, window, choice); err != nil {
+		if err := choice.WriteFile(paths, window, choiceVal); err != nil {
 			return fmt.Errorf("write choice: %w", err)
+		}
+	}
+
+	// Send the choice key directly to Claude Code's pane
+	if sendKeys && window != "" && choiceVal != choice.Cancel {
+		var client tmux.Client
+		if s := os.Getenv("LAZYCLAUDE_TMUX_SOCKET"); s != "" {
+			client = tmux.NewExecClientWithSocket(s)
+		} else {
+			client = tmux.NewExecClient()
+		}
+		if err := tmuxadapter.SendToPane(context.Background(), client, window, choiceVal); err != nil {
+			fmt.Fprintf(os.Stderr, "send-keys: %v\n", err)
 		}
 	}
 

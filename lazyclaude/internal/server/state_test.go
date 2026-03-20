@@ -125,6 +125,49 @@ func TestState_ConnCount(t *testing.T) {
 	assert.Equal(t, 1, s.ConnCount())
 }
 
+func TestState_DiffChoice_SetAndGet(t *testing.T) {
+	t.Parallel()
+	s := server.NewState()
+
+	s.SetDiffChoice("@1", "1")
+
+	key, ok := s.GetDiffChoice("@1")
+	assert.True(t, ok)
+	assert.Equal(t, "1", key)
+}
+
+func TestState_DiffChoice_ConsumedOnGet(t *testing.T) {
+	t.Parallel()
+	s := server.NewState()
+
+	s.SetDiffChoice("@1", "3")
+
+	_, ok := s.GetDiffChoice("@1")
+	assert.True(t, ok)
+
+	// Second get should return false (consumed)
+	_, ok = s.GetDiffChoice("@1")
+	assert.False(t, ok)
+}
+
+func TestState_DiffChoice_Expired(t *testing.T) {
+	t.Parallel()
+	s := server.NewState()
+
+	s.SetDiffChoiceWithExpiry("@1", "2", time.Now().Add(-1*time.Second))
+
+	_, ok := s.GetDiffChoice("@1")
+	assert.False(t, ok)
+}
+
+func TestState_DiffChoice_NotFound(t *testing.T) {
+	t.Parallel()
+	s := server.NewState()
+
+	_, ok := s.GetDiffChoice("nonexistent")
+	assert.False(t, ok)
+}
+
 func TestState_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 	s := server.NewState()

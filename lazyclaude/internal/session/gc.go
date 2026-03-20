@@ -8,16 +8,17 @@ import (
 
 // GC periodically syncs with tmux and removes dead sessions.
 type GC struct {
-	mgr      *Manager
+	svc      Service
 	interval time.Duration
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
+	log      func(msg string, args ...any) // optional debug logger
 }
 
 // NewGC creates a garbage collector that runs at the given interval.
-func NewGC(mgr *Manager, interval time.Duration) *GC {
+func NewGC(svc Service, interval time.Duration) *GC {
 	return &GC{
-		mgr:      mgr,
+		svc:      svc,
 		interval: interval,
 	}
 }
@@ -57,21 +58,27 @@ func (gc *GC) Stop() {
 const gcGracePeriod = 10 * time.Second
 
 func (gc *GC) collect(ctx context.Context) {
-	if err := gc.mgr.Sync(ctx); err != nil {
-		gc.mgr.log.Debug("gc.sync.error", "err", err)
+	if err := gc.svc.Sync(ctx); err != nil {
+		gc.debugLog("gc.sync.error", "err", err)
 		return
 	}
 
 	now := time.Now()
-	sessions := gc.mgr.Sessions()
+	sessions := gc.svc.Sessions()
 	for _, s := range sessions {
 		if s.Status == StatusDead || s.Status == StatusOrphan {
 			if now.Sub(s.CreatedAt) < gcGracePeriod {
-				gc.mgr.log.Debug("gc.skip.grace", "name", s.Name, "age", now.Sub(s.CreatedAt))
+				gc.debugLog("gc.skip.grace", "name", s.Name, "age", now.Sub(s.CreatedAt))
 				continue
 			}
-			gc.mgr.log.Info("gc.delete", "name", s.Name, "id", s.ID[:8], "status", s.Status)
-			gc.mgr.Delete(ctx, s.ID)
+			gc.debugLog("gc.delete", "name", s.Name, "id", s.ID[:8], "status", s.Status)
+			gc.svc.Delete(ctx, s.ID)
 		}
+	}
+}
+
+func (gc *GC) debugLog(msg string, args ...any) {
+	if gc.log != nil {
+		gc.log(msg, args...)
 	}
 }
