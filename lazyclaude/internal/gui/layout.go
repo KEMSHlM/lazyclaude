@@ -9,6 +9,96 @@ import (
 	"github.com/jesseduffield/gocui"
 )
 
+// Rect is a simple rectangle from (X0, Y0) to (X1, Y1) inclusive,
+// matching gocui's SetView coordinate convention.
+type Rect struct {
+	X0, Y0, X1, Y1 int
+}
+
+// Width returns the number of columns the rectangle spans.
+func (r Rect) Width() int {
+	return r.X1 - r.X0
+}
+
+// Height returns the number of rows the rectangle spans.
+func (r Rect) Height() int {
+	return r.Y1 - r.Y0
+}
+
+// Layout holds pre-computed view positions for the main screen.
+type Layout struct {
+	Sessions Rect // upper-left panel
+	Server   Rect // lower-left panel
+	Main     Rect // right panel (preview)
+	Options  Rect // bottom bar
+	Compact  bool // true when terminal is too narrow for a split
+}
+
+// CompactThreshold is the terminal width below which compact mode activates.
+const CompactThreshold = 60
+
+// ComputeLayout calculates view positions for the given terminal size.
+// It mirrors the inline coordinate logic from layoutMain exactly.
+func ComputeLayout(width, height int) Layout {
+	maxX := width
+	maxY := height
+
+	splitX := maxX / 3
+	if splitX < 20 {
+		splitX = 20
+	}
+	if splitX >= maxX-10 {
+		splitX = maxX / 2
+	}
+
+	compact := width < CompactThreshold
+
+	leftMidY := (maxY - 2) * 2 / 3
+
+	sessions := Rect{X0: 0, Y0: 0, X1: splitX - 1, Y1: leftMidY}
+	server := Rect{X0: 0, Y0: leftMidY + 1, X1: splitX - 1, Y1: maxY - 2}
+	main := Rect{X0: splitX, Y0: 0, X1: maxX - 1, Y1: maxY - 2}
+	options := Rect{X0: 0, Y0: maxY - 2, X1: maxX - 1, Y1: maxY}
+
+	return Layout{
+		Sessions: sessions,
+		Server:   server,
+		Main:     main,
+		Options:  options,
+		Compact:  compact,
+	}
+}
+
+// ComputeFullScreenLayout calculates view positions for full-screen mode.
+// The main panel takes the full terminal width; a status bar sits at the bottom.
+func ComputeFullScreenLayout(width, height int) Layout {
+	maxX := width
+	maxY := height
+
+	main := Rect{X0: 0, Y0: 0, X1: maxX - 1, Y1: maxY - 2}
+	statusBar := Rect{X0: 0, Y0: maxY - 2, X1: maxX - 1, Y1: maxY}
+
+	return Layout{
+		Main:    main,
+		Options: statusBar,
+	}
+}
+
+// ComputePopupLayout calculates view positions for popup (diff/tool) mode.
+// The content area fills all but the last two rows; the actions bar occupies the bottom.
+func ComputePopupLayout(width, height int) Layout {
+	maxX := width
+	maxY := height
+
+	content := Rect{X0: 0, Y0: 0, X1: maxX - 1, Y1: maxY - 3}
+	actions := Rect{X0: 0, Y0: maxY - 2, X1: maxX - 1, Y1: maxY}
+
+	return Layout{
+		Main:    content,
+		Options: actions,
+	}
+}
+
 // ActiveTabIdx returns the active side panel tab index.
 func (a *App) ActiveTabIdx() int {
 	return a.activeTabIdx
@@ -55,22 +145,13 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	g.Cursor = false
 	fmt.Fprint(os.Stdout, "\033[0 q") // restore default cursor
 
-	splitX := maxX / 3
-	if splitX < 20 {
-		splitX = 20
-	}
-	if splitX >= maxX-10 {
-		splitX = maxX / 2
-	}
+	l := ComputeLayout(maxX, maxY)
 
 	tabs := SideTabs()
 	tabTitle := " " + TabBar(tabs, a.activeTabIdx) + " "
 
-	// Left side panel: split into upper (sessions) and lower (server)
-	leftMidY := (maxY - 2) * 2 / 3
-
 	// Sessions view (upper left)
-	v, err := g.SetView("sessions", 0, 0, splitX-1, leftMidY, 0)
+	v, err := g.SetView("sessions", l.Sessions.X0, l.Sessions.Y0, l.Sessions.X1, l.Sessions.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
@@ -87,7 +168,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	a.renderSessionList(v, items)
 
 	// Server view (lower left)
-	v2, err := g.SetView("server", 0, leftMidY+1, splitX-1, maxY-2, 0)
+	v2, err := g.SetView("server", l.Server.X0, l.Server.Y0, l.Server.X1, l.Server.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
@@ -98,20 +179,22 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	}
 
 	// Main panel (right side)
-	v3, err := g.SetView("main", splitX, 0, maxX-1, maxY-2, 0)
+	v3, err := g.SetView("main", l.Main.X0, l.Main.Y0, l.Main.X1, l.Main.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
 	v3.Wrap = false
 	v3.Editable = false
 	v3.Clear()
-	// Pass preview panel inner dimensions (exclude borders)
-	previewW := maxX - splitX - 2
-	previewH := maxY - 4
+	// Pass preview panel inner dimensions (exclude borders).
+	// Width: gocui border takes 1 col on each side of the right panel.
+	// Height: top border + bottom border + options bar = 2 top + 2 bottom rows.
+	previewW := l.Main.Width() - 1
+	previewH := l.Main.Height() - 2
 	a.renderPreview(v3, items, previewW, previewH)
 
 	// Options bar (bottom, frameless)
-	v4, err := g.SetView("options", 0, maxY-2, maxX-1, maxY, 0)
+	v4, err := g.SetView("options", l.Options.X0, l.Options.Y0, l.Options.X1, l.Options.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
@@ -134,8 +217,10 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	g.DeleteView("server")
 	g.DeleteView("options")
 
+	l := ComputeFullScreenLayout(maxX, maxY)
+
 	// Full-screen main view
-	v, err := g.SetView("main", 0, 0, maxX-1, maxY-2, 0)
+	v, err := g.SetView("main", l.Main.X0, l.Main.Y0, l.Main.X1, l.Main.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
@@ -163,15 +248,16 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 		a.exitFullScreen()
 		return nil
 	}
-	previewW := maxX - 2
-	previewH := maxY - 3
+	// Inner dimensions: subtract borders (1 col each side, 1 row each side).
+	previewW := l.Main.Width() - 1
+	previewH := l.Main.Height() - 1
 	a.renderPreview(v, items, previewW, previewH)
 
 	// Scroll offset for mouse scroll
 	v.SetOrigin(0, a.fullScreenScrollY)
 
 	// Status bar
-	v2, err := g.SetView("fullscreen-bar", 0, maxY-2, maxX-1, maxY, 0)
+	v2, err := g.SetView("fullscreen-bar", l.Options.X0, l.Options.Y0, l.Options.X1, l.Options.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
@@ -190,15 +276,17 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 }
 
 func (a *App) layoutPopup(g *gocui.Gui, maxX, maxY int) error {
+	l := ComputePopupLayout(maxX, maxY)
+
 	// Content area (top)
-	v, err := g.SetView("content", 0, 0, maxX-1, maxY-3, 0)
+	v, err := g.SetView("content", l.Main.X0, l.Main.Y0, l.Main.X1, l.Main.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
 	v.Wrap = false
 
 	// Actions bar (bottom)
-	v2, err := g.SetView("actions", 0, maxY-2, maxX-1, maxY, 0)
+	v2, err := g.SetView("actions", l.Options.X0, l.Options.Y0, l.Options.X1, l.Options.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
