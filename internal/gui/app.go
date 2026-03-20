@@ -36,6 +36,7 @@ type SessionProvider interface {
 	CapturePreview(id string, width, height int) (PreviewResult, error)
 	PendingNotifications() []*model.ToolNotification
 	SendChoice(window string, choice Choice) error
+	AttachSession(id string) error
 }
 
 // SessionItem is a read-only view of a session for display.

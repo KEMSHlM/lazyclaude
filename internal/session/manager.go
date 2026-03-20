@@ -344,8 +344,13 @@ func cleanSessionCommands() [][]string {
 		{"set-option", "prefix", "None"},
 		{"set-option", "automatic-rename", "off"},
 		{"set-option", "remain-on-exit", "on"},
+		// Size window to the largest client (not smallest), so the
+		// interactive attach is not constrained by control mode's size.
+		{"set-option", "window-size", "largest"},
 		{"unbind-key", "-a", "-T", "prefix"},
 		{"unbind-key", "-a", "-T", "root"},
+		// Ctrl+\ detaches from the session, returning to lazyclaude TUI.
+		{"bind-key", "-T", "root", "C-\\", "detach-client"},
 	}
 }
 

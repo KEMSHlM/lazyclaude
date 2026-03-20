@@ -233,7 +233,7 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// Enter: enter full-screen or forward
+	// Enter: suspend gocui and attach to session via tmux, or forward in full-screen
 	if err := a.gui.SetKeybinding("", km.FirstKey(ActionEnterFull), gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		if a.hasPopup() {
 			return nil
@@ -247,7 +247,18 @@ func (a *App) setupGlobalKeybindings() error {
 		}
 		items := a.sessions.Sessions()
 		if a.cursor >= 0 && a.cursor < len(items) {
-			a.enterFullScreen(items[a.cursor].ID)
+			// Suspend gocui, attach to tmux session, resume on detach.
+			if err := g.Suspend(); err != nil {
+				a.setStatus(g, fmt.Sprintf("Suspend error: %v", err))
+				return nil
+			}
+			attachErr := a.sessions.AttachSession(items[a.cursor].ID)
+			if err := g.Resume(); err != nil {
+				return err
+			}
+			if attachErr != nil {
+				a.setStatus(g, fmt.Sprintf("Attach error: %v", attachErr))
+			}
 		}
 		return nil
 	}); err != nil {

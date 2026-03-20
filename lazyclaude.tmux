@@ -14,8 +14,8 @@ if [ -z "$BINARY" ]; then
     exit 1
 fi
 
-# Capture PATH now (login shell) — display-popup may have a restricted PATH.
-LAUNCH_PATH="$PATH"
+# Capture the directory containing lazyclaude (and likely claude).
+LAUNCH_BIN_DIR="$(dirname "$BINARY")"
 
 # Run Go setup (MCP server + Claude Code hooks)
 "$BINARY" setup
@@ -27,16 +27,19 @@ suppress_keys=$(tmux show-option -gqv @claude-suppress-keys 2>/dev/null)
 launch_key="${launch_key:-space}"
 
 # Register keybindings
-# display-popup runs lazyclaude as an overlay. env -u TMUX prevents the tmux
-# nesting guard. PATH is passed from the login shell so claude is found.
-tmux bind-key "$launch_key" display-popup -w 90% -h 80% -d "#{pane_current_path}" -E "env -u TMUX PATH='$LAUNCH_PATH' LAZYCLAUDE_POPUP_MODE=tmux $BINARY"
+# LAZYCLAUDE_HOST_TMUX saves the user's TMUX before unsetting it, so lazyclaude
+# can open nested display-popups on the user's tmux server.
+tmux bind-key "$launch_key" display-popup -w 80% -h 80% -d "#{pane_current_path}" -E "LAZYCLAUDE_HOST_TMUX=\$TMUX env -u TMUX PATH='$LAUNCH_BIN_DIR':\$PATH LAZYCLAUDE_POPUP_MODE=tmux $BINARY"
 
-# Suppress specified keys inside lazyclaude session
+# Suppress specified keys inside lazyclaude session.
+# Skip if the key is already wrapped with our if-shell guard (prevents
+# exponential nesting on repeated source).
 for key in $suppress_keys; do
-    original=$(tmux list-keys -T prefix 2>/dev/null | awk -v k="$key" '$4 == k {$1=$2=$3=$4=""; sub(/^[[:space:]]+/,""); print}')
-    if [ -n "$original" ]; then
-        tmux bind-key "$key" if -F '#{==:#{session_name},lazyclaude}' '' "$original"
-    else
-        tmux bind-key "$key" if -F '#{==:#{session_name},lazyclaude}' '' ''
+    current=$(tmux list-keys -T prefix 2>/dev/null | awk -v k="$key" '$4 == k {$1=$2=$3=$4=""; sub(/^[[:space:]]+/,""); print}')
+    case "$current" in
+        *lazyclaude*) continue ;;  # already wrapped
+    esac
+    if [ -n "$current" ]; then
+        tmux bind-key "$key" if -F '#{==:#{session_name},lazyclaude}' '' "$current"
     fi
 done

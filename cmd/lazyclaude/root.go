@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -318,6 +319,25 @@ func (a *sessionAdapter) PendingNotifications() []*model.ToolNotification {
 
 func (a *sessionAdapter) SendChoice(window string, c gui.Choice) error {
 	return tmuxadapter.SendToPane(context.Background(), a.tmux, window, c)
+}
+
+func (a *sessionAdapter) AttachSession(id string) error {
+	sess := a.mgr.Store().FindByID(id)
+	if sess == nil {
+		return fmt.Errorf("session not found: %s", id)
+	}
+	target := "lazyclaude:" + sess.WindowName()
+
+	// Ensure window-size=largest so attach is not constrained by control mode.
+	_ = exec.Command("tmux", "-L", "lazyclaude", "set-option", "-t", "lazyclaude", "window-size", "largest").Run()
+
+	// Directly attach to the lazyclaude tmux session.
+	// Ctrl+\ detaches back to gocui (bound in cleanSessionCommands).
+	cmd := exec.Command("tmux", "-L", "lazyclaude", "attach-session", "-t", target)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // controlManager handles control mode connection lifecycle.
