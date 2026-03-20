@@ -30,8 +30,9 @@ suppress_keys=$(tmux show-option -gqv @claude-suppress-keys 2>/dev/null)
 launch_key="${launch_key:-space}"
 
 # Register keybindings
-# Use new-window so the TUI gets a proper terminal
-tmux bind-key "$launch_key" new-window -n lazyclaude "$BINARY"
+# Use new-window with -c to inherit the current pane's working directory.
+# This ensures 'n' (new session) creates Claude Code sessions in the right CWD.
+tmux bind-key "$launch_key" new-window -n lazyclaude -c "#{pane_current_path}" "$BINARY"
 
 # Suppress specified keys inside lazyclaude session
 for key in $suppress_keys; do
