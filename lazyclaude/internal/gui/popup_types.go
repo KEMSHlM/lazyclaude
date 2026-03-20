@@ -18,13 +18,15 @@ type Popup interface {
 	Title() string
 	// IsDiff returns true if this popup shows a diff view.
 	IsDiff() bool
+	// MaxOption returns the number of dialog options (2 or 3).
+	MaxOption() int
 	// ContentLines returns the formatted lines to display.
 	ContentLines() []string
 	// ContentKinds returns the line kinds for coloring (only meaningful for diff).
 	ContentKinds() []presentation.DiffLineKind
 	// ScrollY returns the current scroll offset.
 	ScrollY() int
-	// SetScrollY sets the scroll offset.
+	// SetScrollY sets the scroll offset (clamped to [0, content length]).
 	SetScrollY(y int)
 	// MaxScroll returns the maximum scroll offset given a viewport height.
 	MaxScroll(viewportHeight int) int
@@ -61,6 +63,14 @@ func (p *ToolPopup) IsDiff() bool {
 	return false
 }
 
+// MaxOption returns the number of dialog options from the notification.
+func (p *ToolPopup) MaxOption() int {
+	if p.notification.MaxOption > 0 {
+		return p.notification.MaxOption
+	}
+	return 3
+}
+
 // ContentLines returns the formatted tool description lines.
 func (p *ToolPopup) ContentLines() []string {
 	n := p.notification
@@ -86,14 +96,9 @@ func (p *ToolPopup) SetScrollY(y int) {
 	p.scrollY = y
 }
 
-// MaxScroll returns 0 — ToolPopup does not scroll.
+// MaxScroll returns the maximum scroll offset given a viewport height.
 func (p *ToolPopup) MaxScroll(viewportHeight int) int {
-	lines := len(p.ContentLines())
-	max := lines - viewportHeight
-	if max < 0 {
-		return 0
-	}
-	return max
+	return maxScrollFor(len(p.ContentLines()), viewportHeight)
 }
 
 // Notification returns the underlying ToolNotification.
@@ -136,6 +141,14 @@ func (p *DiffPopup) IsDiff() bool {
 	return true
 }
 
+// MaxOption returns the number of dialog options from the notification.
+func (p *DiffPopup) MaxOption() int {
+	if p.notification.MaxOption > 0 {
+		return p.notification.MaxOption
+	}
+	return 3
+}
+
 // ContentLines returns the formatted diff lines, computing and caching on first call.
 func (p *DiffPopup) ContentLines() []string {
 	p.ensureCache()
@@ -163,12 +176,7 @@ func (p *DiffPopup) SetScrollY(y int) {
 
 // MaxScroll returns the maximum scroll offset given a viewport height.
 func (p *DiffPopup) MaxScroll(viewportHeight int) int {
-	lines := len(p.ContentLines())
-	max := lines - viewportHeight
-	if max < 0 {
-		return 0
-	}
-	return max
+	return maxScrollFor(len(p.ContentLines()), viewportHeight)
 }
 
 // Notification returns the underlying ToolNotification.
@@ -177,6 +185,7 @@ func (p *DiffPopup) Notification() *notify.ToolNotification {
 }
 
 // ensureCache computes diff lines if not already cached.
+// Must be called from the gocui layout goroutine only.
 func (p *DiffPopup) ensureCache() {
 	if p.lines != nil {
 		return
@@ -193,6 +202,14 @@ func (p *DiffPopup) ensureCache() {
 	}
 	p.lines = lines
 	p.kinds = kinds
+}
+
+// maxScrollFor computes the maximum scroll offset for a given line count and viewport height.
+func maxScrollFor(lineCount, viewportHeight int) int {
+	if m := lineCount - viewportHeight; m > 0 {
+		return m
+	}
+	return 0
 }
 
 // newPopupFromNotification constructs the appropriate Popup type from a notification.

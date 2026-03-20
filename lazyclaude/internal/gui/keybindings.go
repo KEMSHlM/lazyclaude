@@ -74,7 +74,7 @@ func (a *App) setupGlobalKeybindings() error {
 				} else {
 					p := a.popups.ActivePopup()
 					if p != nil && p.IsDiff() {
-						if isDown {
+						if isDown && p.ScrollY() < maxScrollFor(len(p.ContentLines()), 20) {
 							p.SetScrollY(p.ScrollY() + 1)
 						}
 						if !isDown && p.ScrollY() > 0 {

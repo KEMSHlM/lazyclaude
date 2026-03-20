@@ -526,3 +526,4 @@ func (m *mockPopup) ContentKinds() []presentation.DiffLineKind       { return ni
 func (m *mockPopup) ScrollY() int                                    { return 0 }
 func (m *mockPopup) SetScrollY(_ int)                                {}
 func (m *mockPopup) MaxScroll(_ int) int                             { return 0 }
+func (m *mockPopup) MaxOption() int                                  { return 3 }
