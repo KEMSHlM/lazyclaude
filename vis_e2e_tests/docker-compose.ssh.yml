@@ -1,0 +1,62 @@
+services:
+  remote:
+    build:
+      context: ..
+      dockerfile: vis_e2e_tests/Dockerfile
+      target: remote
+    networks:
+      - testnet
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep sshd"]
+      interval: 1s
+      timeout: 3s
+      retries: 10
+
+  local:
+    build:
+      context: ..
+      dockerfile: vis_e2e_tests/Dockerfile
+      target: local
+    depends_on:
+      remote:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - REMOTE_HOST=remote
+      - TERM=xterm-256color
+    networks:
+      - testnet
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        ssh-keyscan -H remote >> /root/.ssh/known_hosts 2>/dev/null
+        go test -v -timeout 120s ./tests/ -run TestE2E_SSH
+
+  vhs:
+    build:
+      context: ..
+      dockerfile: vis_e2e_tests/Dockerfile
+      target: vhs
+    depends_on:
+      remote:
+        condition: service_healthy
+    environment:
+      - REMOTE_HOST=remote
+      - TERM=xterm-256color
+      - TAPE=${TAPE:-ssh_launch}
+    networks:
+      - testnet
+    volumes:
+      - ../vis_e2e_tests/outputs:/app/outputs
+    tty: true
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        ssh-keyscan -H remote >> /root/.ssh/known_hosts 2>/dev/null
+        /app/vis_e2e_tests/entrypoint.sh /app/vis_e2e_tests/tapes/$${TAPE}.tape
+
+networks:
+  testnet:
+    driver: bridge
