@@ -224,10 +224,12 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 		)
 	}
 
-	// Set focus to active tab's view
-	activeView := tabs[a.activeTabIdx].Name
-	if _, err := g.SetCurrentView(activeView); err != nil && !isUnknownView(err) {
-		return err
+	// Set focus to active tab's view (skip if rename input is active).
+	if a.renameSessionID == "" {
+		activeView := tabs[a.activeTabIdx].Name
+		if _, err := g.SetCurrentView(activeView); err != nil && !isUnknownView(err) {
+			return err
+		}
 	}
 	return nil
 }
@@ -479,5 +481,48 @@ func (a *App) renderServerLog(v *gocui.View) {
 	}
 	for _, line := range lines[start:] {
 		fmt.Fprintln(v, " "+string(line))
+	}
+}
+
+// showRenameInput creates a small input view for renaming a session.
+// Returns false if the view could not be created.
+func (a *App) showRenameInput(g *gocui.Gui, currentName string) bool {
+	maxX, maxY := g.Size()
+	w := 40
+	if w > maxX-4 {
+		w = maxX - 4
+	}
+	x0 := (maxX - w) / 2
+	y0 := maxY/2 - 1
+	x1 := x0 + w
+	y1 := y0 + 2
+
+	v, err := g.SetView("rename-input", x0, y0, x1, y1, 0)
+	if err != nil && !isUnknownView(err) {
+		return false
+	}
+	v.Title = " Rename "
+	v.Editable = true
+	v.Editor = gocui.DefaultEditor
+	v.TextArea.Clear()
+	for _, ch := range currentName {
+		v.TextArea.TypeCharacter(string(ch))
+	}
+	v.RenderTextArea()
+	if _, err := g.SetCurrentView("rename-input"); err != nil && !isUnknownView(err) {
+		return false
+	}
+	g.Cursor = true
+	return true
+}
+
+// closeRenameInput removes the rename input view and restores focus.
+func (a *App) closeRenameInput(g *gocui.Gui) {
+	a.renameSessionID = ""
+	g.DeleteView("rename-input")
+	g.Cursor = false
+	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
+		// Fallback: sessions view may not exist in some modes.
+		_ = err
 	}
 }

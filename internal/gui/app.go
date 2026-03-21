@@ -79,6 +79,7 @@ type App struct {
 	popupMode          config.PopupMode             // how popups are displayed (auto/tmux/overlay)
 	notifyBroker       *event.Broker[model.Event]  // optional in-process broker (nil = file-only)
 	notifyBrokerSub    *event.Subscription[model.Event] // active subscription (nil if no broker)
+	renameSessionID    string                     // session ID being renamed (empty = no rename in progress)
 }
 
 // SetPopupMode sets the popup display mode.

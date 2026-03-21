@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jesseduffield/gocui"
 )
@@ -326,20 +327,46 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// R: rename
+	// R: open rename input
 	if err := a.gui.SetKeybinding("", 'R', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		if a.hasPopup() || a.state.IsFullScreen() || a.mode != ModeMain || a.sessions == nil {
 			return nil
 		}
-		items := a.sessions.Sessions()
-		if a.cursor >= 0 && a.cursor < len(items) {
-			newName := items[a.cursor].Name + "-renamed"
-			if err := a.sessions.Rename(items[a.cursor].ID, newName); err != nil {
-				a.setStatus(g, fmt.Sprintf("Error: %v", err))
-				return nil
-			}
-			a.setStatus(g, "Renamed to "+newName)
+		if a.renameSessionID != "" {
+			return nil // already renaming
 		}
+		items := a.sessions.Sessions()
+		if a.cursor < 0 || a.cursor >= len(items) {
+			return nil
+		}
+		a.renameSessionID = items[a.cursor].ID
+		if !a.showRenameInput(g, items[a.cursor].Name) {
+			a.renameSessionID = ""
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// Rename input: Enter to confirm
+	if err := a.gui.SetKeybinding("rename-input", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		newName := strings.TrimSpace(v.TextArea.GetContent())
+		if newName != "" && a.renameSessionID != "" {
+			if err := a.sessions.Rename(a.renameSessionID, newName); err != nil {
+				a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			} else {
+				a.setStatus(g, "Renamed to "+newName)
+			}
+		}
+		a.closeRenameInput(g)
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// Rename input: Esc to cancel
+	if err := a.gui.SetKeybinding("rename-input", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		a.closeRenameInput(g)
 		return nil
 	}); err != nil {
 		return err
