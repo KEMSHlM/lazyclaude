@@ -24,6 +24,10 @@ func writeRemoteScript(sess Session, mcpPort int, token string) (string, error) 
 
 	var b strings.Builder
 	b.WriteString("#!/bin/bash\n")
+	// Load login environment for PATH (claude may be in ~/.local/bin)
+	b.WriteString("[ -f \"$HOME/.profile\" ] && . \"$HOME/.profile\"\n")
+	b.WriteString("[ -f \"$HOME/.zprofile\" ] && . \"$HOME/.zprofile\"\n")
+	b.WriteString("export PATH=\"$HOME/.local/bin:$PATH\"\n")
 	b.WriteString(fmt.Sprintf("mkdir -p \"%s\"\n", lockDir))
 	b.WriteString(fmt.Sprintf("cat > \"%s\" << 'LOCKEOF'\n", lockFile))
 	b.WriteString(string(lockJSON) + "\n")
@@ -74,7 +78,7 @@ func buildSSHCommand(sess Session, mcpPort int, token string) (string, error) {
 	args = append(args, "-R", fmt.Sprintf("%d:127.0.0.1:%d", mcpPort, mcpPort))
 	args = append(args, host)
 	// base64 string has no shell metacharacters — safe to pass directly.
-	// eval runs the decoded script in the current shell (login env intact).
+	// eval runs the decoded script in the remote shell.
 	args = append(args, fmt.Sprintf("eval \"$(echo %s | base64 -d)\"", encoded))
 
 	return strings.Join(args, " "), nil
