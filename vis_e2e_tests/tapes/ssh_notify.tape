@@ -34,8 +34,8 @@ Wait+Screen /Sonnet/
 # Claude にファイル作成を依頼 (Write ツール → permission_prompt → 通知)
 Type "create a file /tmp/hello.txt with content 'hello world'" Enter
 
-# Write ポップアップが来るまで待機
-Wait+Screen /Write/
+# ツール許可ポップアップが来るまで待機 (Write or Bash)
+Wait+Screen /Do you want/
 
 # y で承認
 Type "y" Sleep 3s

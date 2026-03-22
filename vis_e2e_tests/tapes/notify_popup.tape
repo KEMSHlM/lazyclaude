@@ -27,8 +27,8 @@ Sleep 3s
 Ctrl+\ Sleep 1s
 Type "q" Sleep 1s
 
-# popup が閉じた状態で通知 popup が来るか待機
-Wait+Screen /Write/
+# popup が閉じた状態で通知 popup が来るか待機 (Write or Bash)
+Wait+Screen /Do you want/
 
 # y で承認 (通知 popup が出ていれば)
 Type "y" Sleep 3s

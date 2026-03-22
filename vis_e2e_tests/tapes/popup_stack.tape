@@ -23,9 +23,11 @@ Wait+Screen /Sonnet/
 Type "create 3 files: /tmp/a.txt with 'aaa', /tmp/b.txt with 'bbb', /tmp/c.txt with 'ccc'" Enter
 
 # popup が表示される → y で承認 (3回)
-Wait+Screen /Write/
-Type "y" Sleep 3s
-Type "y" Sleep 3s
+Wait+Screen /Do you want/
+Type "y"
+Wait+Screen /Do you want/
+Type "y"
+Wait+Screen /Do you want/
 Type "y" Sleep 3s
 
 # フルスクリーンから戻る → 終了

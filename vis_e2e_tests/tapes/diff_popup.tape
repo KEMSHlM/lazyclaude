@@ -23,7 +23,7 @@ Wait+Screen /Sonnet/
 Type "edit /tmp/test.go and change hello to goodbye" Enter
 
 # diff popup が表示される → y で承認
-Wait+Screen /goodbye/
+Wait+Screen /Do you want/
 Type "y" Sleep 3s
 
 # フルスクリーンから戻る → 終了
