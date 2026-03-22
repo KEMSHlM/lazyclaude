@@ -15,11 +15,11 @@ func (h *PopupHandler) HandleKey(ev KeyEvent, actions AppActions) HandlerResult 
 	}
 
 	switch {
-	case ev.Rune == 'y' || ev.Rune == '1':
+	case ev.Key == gocui.KeyCtrlY || ev.Rune == '1':
 		actions.DismissPopup(choice.Accept)
-	case ev.Rune == 'a' || ev.Rune == '2':
+	case ev.Key == gocui.KeyCtrlA || ev.Rune == '2':
 		actions.DismissPopup(choice.Allow)
-	case ev.Rune == 'n' || ev.Rune == '3':
+	case ev.Key == gocui.KeyCtrlN || ev.Rune == '3':
 		actions.DismissPopup(choice.Reject)
 	case ev.Rune == 'Y':
 		actions.DismissAllPopups(choice.Accept)

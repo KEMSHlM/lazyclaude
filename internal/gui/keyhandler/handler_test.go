@@ -74,9 +74,9 @@ func TestPopupHandler_ConsumesAllKeys(t *testing.T) {
 	h := &keyhandler.PopupHandler{}
 	a := &mockActions{hasPopup: true}
 
-	r := h.HandleKey(keyhandler.KeyEvent{Rune: 'y'}, a)
+	r := h.HandleKey(keyhandler.KeyEvent{Key: gocui.KeyCtrlY}, a)
 	if r != keyhandler.Handled || a.lastCall() != "DismissPopup" {
-		t.Errorf("popup y: result=%v, call=%q", r, a.lastCall())
+		t.Errorf("popup Ctrl+Y: result=%v, call=%q", r, a.lastCall())
 	}
 
 	// Unknown key should still be Handled (consumed)

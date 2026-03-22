@@ -138,11 +138,11 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 		p := focusedEntry.popup
 
 		maxOpt := p.MaxOption()
-		base := " " + presentation.StyledKey("y", "yes") + "  " + presentation.StyledKey("n", "no")
+		base := " " + presentation.StyledKey("C-y", "yes") + "  " + presentation.StyledKey("C-n", "no")
 		if maxOpt >= 3 {
-			base = " " + presentation.StyledKey("y", "yes") + "  " +
-				presentation.StyledKey("a", "allow") + "  " +
-				presentation.StyledKey("n", "no")
+			base = " " + presentation.StyledKey("C-y", "yes") + "  " +
+				presentation.StyledKey("C-a", "allow") + "  " +
+				presentation.StyledKey("C-n", "no")
 		}
 		if p.IsDiff() {
 			base += "  " + presentation.StyledKey("j/k", "scroll")

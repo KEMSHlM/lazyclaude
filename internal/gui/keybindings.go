@@ -49,6 +49,7 @@ func (a *App) setupGlobalKeybindings() error {
 		gocui.KeyEnter, gocui.KeyEsc, gocui.KeyCtrlC, gocui.KeyCtrlD,
 		gocui.KeyCtrlBackslash, gocui.KeyTab, gocui.KeyBacktab,
 		gocui.KeyArrowUp, gocui.KeyArrowDown,
+		gocui.KeyCtrlY, gocui.KeyCtrlA, gocui.KeyCtrlN,
 	}
 	for _, key := range specials {
 		if err := a.gui.SetKeybinding("", key, gocui.ModNone, a.dispatchKey(key)); err != nil {
@@ -65,7 +66,7 @@ func (a *App) setupGlobalKeybindings() error {
 			return err
 		}
 	}
-	popupSpecials := []gocui.Key{gocui.KeyArrowUp, gocui.KeyArrowDown, gocui.KeyEsc}
+	popupSpecials := []gocui.Key{gocui.KeyArrowUp, gocui.KeyArrowDown, gocui.KeyEsc, gocui.KeyCtrlY, gocui.KeyCtrlA, gocui.KeyCtrlN}
 	for _, key := range popupSpecials {
 		if err := a.gui.SetKeybinding(popupViewName, key, gocui.ModNone, a.dispatchKey(key)); err != nil {
 			return err
