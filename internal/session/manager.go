@@ -314,11 +314,12 @@ func (m *Manager) readMCPInfo() (int, string, error) {
 }
 
 func (m *Manager) buildClaudeCommand(sess Session) string {
-	cmd := "exec claude"
+	claudeArgs := "claude"
 	for _, f := range sess.Flags {
-		cmd += " " + shell.Quote(f)
+		claudeArgs += " " + shell.Quote(f)
 	}
-	return cmd
+	// exec $SHELL -lic runs in login shell so PATH (.zshrc/.profile) is loaded
+	return fmt.Sprintf("exec \"$SHELL\" -lic 'exec %s'", claudeArgs)
 }
 
 // claudeEnv returns environment variables to pass to Claude Code sessions.
