@@ -146,7 +146,14 @@ func (a *App) setupGlobalKeybindings() error {
 		if a.state.IsFullScreen() || a.mode != ModeMain || a.sessions == nil {
 			return nil
 		}
-		if err := a.sessions.Create(".", ""); err != nil {
+		host := DetectSSHHost()
+		path := "."
+		if host != "" {
+			if rp := DetectRemotePath(); rp != "" {
+				path = rp
+			}
+		}
+		if err := a.sessions.Create(path, host); err != nil {
 			a.setStatus(g, fmt.Sprintf("Error: %v", err))
 			return nil
 		}

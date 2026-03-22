@@ -27,15 +27,15 @@ func newSetupCmd() *cobra.Command {
 func runSetup() error {
 	paths := config.DefaultPaths()
 
-	// 1. Ensure MCP server is running
-	result, err := server.EnsureServer(server.EnsureOpts{
+	// 1. Restart MCP server (kill old, start new with current binary)
+	result, err := server.RestartServer(server.EnsureOpts{
 		Binary:   os.Args[0],
 		PortFile: paths.PortFile(),
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: MCP server: %v\n", err)
 	} else if result.Started {
-		fmt.Fprintln(os.Stderr, "MCP server started")
+		fmt.Fprintln(os.Stderr, "MCP server restarted")
 	}
 
 	// 2. Install Claude Code hooks
