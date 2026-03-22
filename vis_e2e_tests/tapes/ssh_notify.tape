@@ -16,8 +16,15 @@ Ctrl+\ Sleep 5s
 # n でリモートセッション作成
 Type "n" Sleep 10s
 
-# フルスクリーン (Claude Code が起動するのを待つ)
-Type "r" Sleep 15s
+# --- モード選択 (どちらか一方をコメントアウト) ---
+
+# bypass モード: Enter でフルスクリーン (TUI 内プレビュー、キーは send-keys 転送)
+Enter Sleep 15s
+
+# attach モード: a で tmux attach (gocui Suspend → tmux session に直接接続)
+# Type "a" Sleep 15s
+
+# --- ここまで ---
 
 # Claude にファイル作成を依頼 (Write ツール → permission_prompt → 通知)
 Type "create a file /tmp/hello.txt with content 'hello world'" Enter
