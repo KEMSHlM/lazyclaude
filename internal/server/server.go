@@ -280,6 +280,14 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	window := s.resolveNotifyWindow(r.Context(), req.PID)
+	if window == "" && req.Type != "tool_info" {
+		// Fallback for permission_prompt: hook processes may have different PIDs
+		// from the earlier PreToolUse hook. Use the most recent pending window.
+		window = s.state.LastPendingWindow()
+		if window != "" {
+			s.log.Printf("notify: pid=%d not found, using last pending window %q", req.PID, window)
+		}
+	}
 	if window == "" {
 		s.log.Printf("notify: window not found for pid=%d type=%s tool=%s", req.PID, req.Type, req.ToolName)
 		http.Error(w, "window not found", http.StatusNotFound)
