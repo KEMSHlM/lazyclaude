@@ -50,6 +50,17 @@ func isUnknownView(err error) bool {
 3. Global bindings — ただし Editable view では rune キー (ch!=0) のグローバルバインドはスキップ
 ```
 
+### Frame=false ビューの座標系
+
+`Frame=false` でもコンテンツ領域は `(x0+1, y0+1)` から `(x1-1, y1-1)` のまま。
+フレームは描画されないが、y0 / y1 の行はコンテンツに使われない。
+frameless バーを配置するときは y0+1 がテキスト開始位置になることに注意。
+
+```
+InnerWidth  = Width  - 2  (常に)
+InnerHeight = Height - 2  (常に)
+```
+
 ### Ctrl+[ と Esc
 
 同じバイト (0x1B)。gocui/tcell で区別不可能。

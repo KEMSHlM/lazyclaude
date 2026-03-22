@@ -40,6 +40,9 @@ func (p *SessionsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult
 	case ev.Rune == 'D':
 		actions.PurgeOrphans()
 		return Handled
+	case ev.Rune == '1' || ev.Rune == '2' || ev.Rune == '3':
+		actions.SendKeyToPane(string(ev.Rune))
+		return Handled
 	}
 	return Unhandled
 }
@@ -50,6 +53,7 @@ func (p *SessionsPanel) OptionsBar() string {
 		presentation.StyledKey("d", "del") + "  " +
 		presentation.StyledKey("enter", "full") + "  " +
 		presentation.StyledKey("a", "attach") + "  " +
+		presentation.StyledKey("1/2/3", "send") + "  " +
 		presentation.StyledKey("R", "rename") + "  " +
 		presentation.StyledKey("q", "quit")
 }

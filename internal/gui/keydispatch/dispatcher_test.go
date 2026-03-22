@@ -45,6 +45,7 @@ func (m *mockActions) PopupScrollDown()                 { m.record("PopupScrollD
 func (m *mockActions) PopupScrollUp()                   { m.record("PopupScrollUp") }
 func (m *mockActions) ExitFullScreen()                  { m.record("ExitFullScreen") }
 func (m *mockActions) ForwardSpecialKey(key string)     { m.record("ForwardSpecialKey:" + key) }
+func (m *mockActions) SendKeyToPane(key string)         { m.record("SendKeyToPane:" + key) }
 func (m *mockActions) LogsCursorDown()                  { m.record("LogsCursorDown") }
 func (m *mockActions) LogsCursorUp()                    { m.record("LogsCursorUp") }
 func (m *mockActions) LogsCursorToEnd()                 { m.record("LogsCursorToEnd") }

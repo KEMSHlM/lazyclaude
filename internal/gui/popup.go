@@ -130,6 +130,7 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 			return err
 		}
 		v2.Frame = false
+		v2.BgColor = gocui.Get256Color(236)
 		v2.Clear()
 		g.SetViewOnTop(popupActionsViewName)
 

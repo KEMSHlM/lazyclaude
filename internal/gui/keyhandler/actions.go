@@ -36,6 +36,9 @@ type AppActions interface {
 	ExitFullScreen()
 	ForwardSpecialKey(tmuxKey string)
 
+	// Send key to the selected session's pane (works without fullscreen)
+	SendKeyToPane(key string)
+
 	// Logs panel
 	LogsCursorDown()
 	LogsCursorUp()

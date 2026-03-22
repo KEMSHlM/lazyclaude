@@ -42,6 +42,31 @@ func (a *App) resolveForwardTarget() string {
 	return "lazyclaude:" + t
 }
 
+// resolveSessionTarget returns the tmux target for the selected session.
+// Unlike resolveForwardTarget, this works without fullscreen mode.
+func (a *App) resolveSessionTarget() string {
+	if a.sessions == nil {
+		return ""
+	}
+	items := a.sessions.Sessions()
+	if a.cursor < 0 || a.cursor >= len(items) {
+		return ""
+	}
+	t := items[a.cursor].TmuxWindow
+	if t == "" {
+		id := items[a.cursor].ID
+		if id == "" {
+			return ""
+		}
+		windowName := "lc-" + id
+		if len(id) > 8 {
+			windowName = "lc-" + id[:8]
+		}
+		return "lazyclaude:" + windowName
+	}
+	return "lazyclaude:" + t
+}
+
 func (a *App) forwardKey(ch rune) {
 	target := a.resolveForwardTarget()
 	if target == "" {

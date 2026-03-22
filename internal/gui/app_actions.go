@@ -201,6 +201,21 @@ func (a *App) ForwardSpecialKey(tmuxKey string) {
 	a.forwardSpecialKey(tmuxKey)
 }
 
+// --- Send key to pane (works without fullscreen) ---
+
+func (a *App) SendKeyToPane(key string) {
+	target := a.resolveSessionTarget()
+	if target == "" {
+		return
+	}
+	if a.fullscreen.forwarder == nil {
+		return
+	}
+	go func() {
+		_ = a.fullscreen.forwarder.ForwardKey(target, key)
+	}()
+}
+
 // --- Logs ---
 
 func (a *App) LogsCursorDown()    { a.logs.CursorDown() }
