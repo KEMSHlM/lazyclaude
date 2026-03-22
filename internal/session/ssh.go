@@ -24,10 +24,6 @@ func writeRemoteScript(sess Session, mcpPort int, token string) (string, error) 
 
 	var b strings.Builder
 	b.WriteString("#!/bin/bash\n")
-	// Load login environment for PATH (claude may be in ~/.local/bin)
-	b.WriteString("[ -f \"$HOME/.profile\" ] && . \"$HOME/.profile\"\n")
-	b.WriteString("[ -f \"$HOME/.zprofile\" ] && . \"$HOME/.zprofile\"\n")
-	b.WriteString("export PATH=\"$HOME/.local/bin:$PATH\"\n")
 	b.WriteString(fmt.Sprintf("mkdir -p \"%s\"\n", lockDir))
 	b.WriteString(fmt.Sprintf("cat > \"%s\" << 'LOCKEOF'\n", lockFile))
 	b.WriteString(string(lockJSON) + "\n")
@@ -38,11 +34,13 @@ func writeRemoteScript(sess Session, mcpPort int, token string) (string, error) 
 		b.WriteString(fmt.Sprintf("cd %q\n", sess.Path))
 	}
 
-	claudeCmd := "CLAUDE_CODE_AUTO_CONNECT_IDE=true exec claude"
+	claudeArgs := "claude"
 	for _, f := range sess.Flags {
-		claudeCmd += " " + f
+		claudeArgs += " " + f
 	}
-	b.WriteString(claudeCmd + "\n")
+	// exec $SHELL -lc runs in remote's login shell (loads .zprofile/.profile for PATH)
+	// $SHELL is expanded on remote since this script is base64-encoded and eval'd there
+	b.WriteString(fmt.Sprintf("CLAUDE_CODE_AUTO_CONNECT_IDE=true exec \"$SHELL\" -lic 'exec %s'\n", claudeArgs))
 
 	scriptPath := fmt.Sprintf("/tmp/lazyclaude/ssh-%s.sh", sess.ID[:8])
 	if err := os.WriteFile(scriptPath, []byte(b.String()), 0o755); err != nil {
