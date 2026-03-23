@@ -344,6 +344,26 @@ func (a *sessionAdapter) ListWorktrees(projectRoot string) ([]gui.WorktreeInfo, 
 	return result, nil
 }
 
+func (a *sessionAdapter) LaunchLazygit(path, host string) error {
+	if host != "" {
+		bin, args := session.BuildLazygitSSHArgs(host, path)
+		cmd := exec.Command(bin, args...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	if _, err := exec.LookPath("lazygit"); err != nil {
+		return fmt.Errorf("lazygit is not installed")
+	}
+	cmd := exec.Command("lazygit")
+	cmd.Dir = path
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 func (a *sessionAdapter) AttachSession(id string) error {
 	sess := a.mgr.Store().FindByID(id)
 	if sess == nil {
