@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log"
 	"log/slog"
@@ -330,21 +329,15 @@ func (a *sessionAdapter) CreateWorktree(name, prompt, projectRoot string) error 
 
 func (a *sessionAdapter) LaunchLazygit(path, host string) error {
 	if host != "" {
-		sshHost, port := session.SplitHostPort(host)
-		args := []string{"-t"}
-		if port != "" {
-			args = append(args, "-p", port)
-		}
-		// base64-encode the remote command to avoid all quoting issues
-		// (consistent with buildSSHCommand in internal/session/ssh.go).
-		remoteCmd := fmt.Sprintf("cd %s && lazygit", path)
-		encoded := base64.StdEncoding.EncodeToString([]byte(remoteCmd))
-		args = append(args, sshHost, fmt.Sprintf("eval \"$(echo %s | base64 -d)\"", encoded))
-		cmd := exec.Command("ssh", args...)
+		bin, args := session.BuildLazygitSSHArgs(host, path)
+		cmd := exec.Command(bin, args...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
+	}
+	if _, err := exec.LookPath("lazygit"); err != nil {
+		return fmt.Errorf("lazygit is not installed")
 	}
 	cmd := exec.Command("lazygit")
 	cmd.Dir = path
