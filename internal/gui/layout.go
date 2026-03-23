@@ -483,6 +483,8 @@ func (a *App) showWorktreeDialog(g *gocui.Gui) bool {
 	v2.Editable = true
 	v2.Editor = gocui.DefaultEditor
 	v2.Wrap = true
+	v2.TextArea.AutoWrap = true
+	v2.TextArea.AutoWrapWidth = w - 2 // view 幅からフレーム分を引く
 	setRoundedFrame(v2)
 
 	// Hint bar (frameless)
@@ -597,6 +599,8 @@ func (a *App) showWorktreeResumePrompt(g *gocui.Gui, worktreeName string) bool {
 	v.Editable = true
 	v.Editor = gocui.DefaultEditor
 	v.Wrap = true
+	v.TextArea.AutoWrap = true
+	v.TextArea.AutoWrapWidth = w - 2
 	setRoundedFrame(v)
 
 	hintY0 := promptY1

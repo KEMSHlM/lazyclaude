@@ -39,6 +39,15 @@ func main() {
 }
 GOEOF
         ;;
+    worktree)
+        cd /app
+        git init . || true
+        git config user.email "test@test.com"
+        git config user.name "test"
+        git add -A
+        git commit -m "init" || true
+        git worktree add .claude/worktrees/fix-popup -b fix-popup || true
+        ;;
 esac
 
 # --- フレーム監視 (バックグラウンド) ---
