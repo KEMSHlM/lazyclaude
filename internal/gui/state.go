@@ -72,7 +72,7 @@ func (a *App) forwardKey(ch rune) {
 	if target == "" {
 		return
 	}
-	a.fullscreen.EnqueueKey(target, RuneToTmuxKey(ch))
+	a.fullscreen.EnqueueLiteral(target, RuneToLiteral(ch))
 	a.fullscreen.TriggerRefresh()
 }
 
@@ -84,3 +84,4 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 	a.fullscreen.EnqueueKey(target, tmuxKey)
 	a.fullscreen.TriggerRefresh()
 }
+

@@ -31,10 +31,10 @@ func TestMockInputForwarder_RecordsTarget(t *testing.T) {
 
 func TestKeyMapping_PrintableRune(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, "a", gui.RuneToTmuxKey('a'))
-	assert.Equal(t, "Z", gui.RuneToTmuxKey('Z'))
-	assert.Equal(t, "1", gui.RuneToTmuxKey('1'))
-	assert.Equal(t, " ", gui.RuneToTmuxKey(' '))
+	assert.Equal(t, "a", gui.RuneToLiteral('a'))
+	assert.Equal(t, "Z", gui.RuneToLiteral('Z'))
+	assert.Equal(t, "1", gui.RuneToLiteral('1'))
+	assert.Equal(t, " ", gui.RuneToLiteral(' '))
 }
 
 func TestFullScreen_ForwardsKeys(t *testing.T) {
@@ -125,6 +125,53 @@ func TestFullScreen_KeyOrderPreserved(t *testing.T) {
 
 	expected := []string{"a", "i", "u", "e", "o"}
 	assert.Equal(t, expected, fwd.Keys(), "keys must arrive in order (IME input)")
+}
+
+func TestFullScreen_RuneKeysSentAsLiteral(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+
+	fwd := &gui.MockInputForwarder{}
+	app.SetInputForwarder(fwd)
+	app.EnterFullScreenForTest("s1")
+
+	// Rune characters (including tmux metacharacters) must use literal mode
+	for _, ch := range []rune{';', '&', '|', '$', '(', ')', 'あ', 'A'} {
+		app.ForwardKeyForTest(ch)
+	}
+
+	expected := []string{";", "&", "|", "$", "(", ")", "あ", "A"}
+	assert.Equal(t, expected, fwd.Literals(), "rune chars must be sent via ForwardLiteral")
+}
+
+func TestFullScreen_SpecialKeysSentAsKeyName(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+
+	fwd := &gui.MockInputForwarder{}
+	app.SetInputForwarder(fwd)
+	app.EnterFullScreenForTest("s1")
+
+	// Special keys must NOT be sent as literal
+	app.ForwardSpecialKeyForTest("Enter")
+	app.ForwardSpecialKeyForTest("Space")
+
+	assert.Equal(t, []string{"Enter", "Space"}, fwd.Keys())
+	assert.Empty(t, fwd.Literals(), "special keys must NOT use ForwardLiteral")
 }
 
 func TestFullScreen_PopupBlocksForwarding(t *testing.T) {

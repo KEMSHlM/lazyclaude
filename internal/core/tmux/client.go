@@ -38,7 +38,12 @@ type Client interface {
 	CapturePaneANSI(ctx context.Context, target string) (string, error)
 
 	// SendKeys sends key sequences to a tmux target.
+	// Keys are interpreted as tmux key names (e.g., "Enter", "Space").
 	SendKeys(ctx context.Context, target string, keys ...string) error
+
+	// SendKeysLiteral sends text literally to a tmux target (send-keys -l).
+	// The text is NOT interpreted as key names — useful for rune characters.
+	SendKeysLiteral(ctx context.Context, target string, text string) error
 
 	// DisplayPopup opens a popup overlay on a client.
 	DisplayPopup(ctx context.Context, opts PopupOpts) error

@@ -283,8 +283,9 @@ func (a *App) SetNotifyBroker(broker *event.Broker[model.Event]) {
 
 // keyCmd is a queued key forwarding command.
 type keyCmd struct {
-	target string
-	key    string
+	target  string
+	key     string
+	literal bool // true = send via send-keys -l (literal text, not key names)
 }
 
 

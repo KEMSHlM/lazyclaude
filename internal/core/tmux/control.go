@@ -137,6 +137,34 @@ func (c *ControlClient) SendKeys(target string, keys ...string) error {
 	return err
 }
 
+// SendKeysLiteral sends text literally through the control connection (send-keys -l).
+// The text is double-quoted to prevent tmux from interpreting special characters
+// (semicolons, spaces, etc.) as command separators or argument delimiters.
+func (c *ControlClient) SendKeysLiteral(target string, text string) error {
+	if err := validateControlTarget(target); err != nil {
+		return err
+	}
+	// Newlines/carriage returns break the control mode line protocol.
+	// NUL bytes would truncate the write at the C layer.
+	for _, ch := range text {
+		if ch == '\n' || ch == '\r' || ch == '\x00' {
+			return fmt.Errorf("literal text contains unsafe character %q", ch)
+		}
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return fmt.Errorf("control client closed")
+	}
+	// Quote the text so tmux control mode doesn't split on spaces or
+	// interpret ; as a command separator. Escape embedded double quotes.
+	escaped := strings.ReplaceAll(text, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	_, err := fmt.Fprintf(c.stdin, "send-keys -l -t %s -- \"%s\"\n", target, escaped)
+	return err
+}
+
 // validateControlArg rejects strings that could inject tmux commands.
 // validateControlTarget rejects tmux command injection in target strings.
 // Spaces are blocked because they would split the command into multiple args.

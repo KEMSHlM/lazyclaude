@@ -294,6 +294,21 @@ func (c *ExecClient) SendKeys(ctx context.Context, target string, keys ...string
 	return err
 }
 
+func (c *ExecClient) SendKeysLiteral(ctx context.Context, target string, text string) error {
+	// tmux's global argument parser treats a standalone ";" argument as a
+	// command separator, even in exec mode. This happens before individual
+	// command parsing, so "--" does not prevent it. Multi-character strings
+	// like "hello;" are safe because ";" must be the entire argument.
+	// Escape the bare ";" → "\;" so tmux passes it through to send-keys.
+	escaped := text
+	if escaped == ";" {
+		escaped = `\;`
+	}
+	args := []string{"send-keys", "-l", "-t", target, "--", escaped}
+	_, err := c.run(ctx, args...)
+	return err
+}
+
 func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
 	// Validate and build env prefix before composing command
 	var prefix string

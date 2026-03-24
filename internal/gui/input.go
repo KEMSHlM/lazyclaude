@@ -12,7 +12,10 @@ import (
 
 // InputForwarder sends keystrokes to a tmux pane.
 type InputForwarder interface {
+	// ForwardKey sends a tmux key name (e.g., "Enter", "Space").
 	ForwardKey(target string, key string) error
+	// ForwardLiteral sends text literally (not interpreted as key names).
+	ForwardLiteral(target string, text string) error
 }
 
 // TmuxInputForwarder forwards keys via tmux send-keys.
@@ -29,11 +32,16 @@ func (f *TmuxInputForwarder) ForwardKey(target string, key string) error {
 	return f.client.SendKeys(context.Background(), target, key)
 }
 
+func (f *TmuxInputForwarder) ForwardLiteral(target string, text string) error {
+	return f.client.SendKeysLiteral(context.Background(), target, text)
+}
+
 // MockInputForwarder records forwarded keys for testing.
 type MockInputForwarder struct {
-	mu     sync.Mutex
-	keys   []string
-	target string
+	mu       sync.Mutex
+	keys     []string
+	literals []string // keys sent via ForwardLiteral
+	target   string
 }
 
 func (f *MockInputForwarder) ForwardKey(target string, key string) error {
@@ -42,6 +50,24 @@ func (f *MockInputForwarder) ForwardKey(target string, key string) error {
 	f.target = target
 	f.keys = append(f.keys, key)
 	return nil
+}
+
+func (f *MockInputForwarder) ForwardLiteral(target string, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.target = target
+	f.keys = append(f.keys, text)
+	f.literals = append(f.literals, text)
+	return nil
+}
+
+// Literals returns a copy of the literal-only keys sent via ForwardLiteral.
+func (f *MockInputForwarder) Literals() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	result := make([]string, len(f.literals))
+	copy(result, f.literals)
+	return result
 }
 
 func (f *MockInputForwarder) Keys() []string {
@@ -58,8 +84,8 @@ func (f *MockInputForwarder) LastTarget() string {
 	return f.target
 }
 
-// RuneToTmuxKey converts a rune to a tmux send-keys compatible string.
-func RuneToTmuxKey(ch rune) string {
+// RuneToLiteral converts a rune to a tmux send-keys compatible string.
+func RuneToLiteral(ch rune) string {
 	return string(ch)
 }
 
@@ -67,6 +93,8 @@ func RuneToTmuxKey(ch rune) string {
 
 // inputEditor implements gocui.Editor to forward all keys
 // to the Claude Code pane in full-screen mode.
+// During a bracketed paste (gui.IsPasting), characters are buffered
+// and forwarded as a single paste operation when the paste ends.
 type inputEditor struct {
 	app *App
 }
@@ -126,6 +154,8 @@ var specialKeyMap = map[gocui.Key]string{
 
 // Edit is called by gocui for every keypress when the view is Editable.
 // In full-screen mode all keys are forwarded directly to the Claude Code pane.
+// During a bracketed paste (gui.IsPasting), characters are buffered and
+// forwarded as a single paste-buffer operation when the paste ends.
 func (e *inputEditor) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) bool {
 	if !e.app.fullscreen.IsActive() || e.app.hasPopup() {
 		return false
