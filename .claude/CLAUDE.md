@@ -26,6 +26,23 @@ awk '/\[Frame 5\]/,/\[Frame 6\]/{if(/\[Frame 6\]/)exit; print}' vis_e2e_tests/ou
 - worktree で作業する場合は `.claude/worktree/` 配下で行う。Docker コンテナ名・ネットワーク名が他の実行と競合しないか事前確認すること (`docker compose ps` で既存コンテナを確認)
 - テスト完了後は `open vis_e2e_tests/outputs/<tape名>/` で Finder から gif 等の結果を確認する
 
+### E2E 手動デバッグ (Docker シェル)
+
+VHS tape だけでは再現・検証が難しい場合、ユーザーにコンテナ内シェルでの手動確認を依頼する:
+
+```bash
+# ビルド
+docker compose -p lazyclaude-e2e-$(git rev-parse --short HEAD) \
+  -f vis_e2e_tests/docker-compose.ssh.yml build
+
+# コンテナ内シェルに入る
+docker compose -p lazyclaude-e2e-$(git rev-parse --short HEAD) \
+  -f vis_e2e_tests/docker-compose.ssh.yml run --rm vhs bash
+```
+
+- `-p` にコミットハッシュを含めて他の実行と競合しないようにする
+- E2E 自動テストで限界がある場合のみ使用し、ユーザーに実行を依頼する
+
 ### Claude Code 認証 (Docker)
 
 ```bash
