@@ -2,7 +2,6 @@ package gui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -124,6 +123,11 @@ func RuneToLiteral(ch rune) string {
 // so 10ms is generous. A standalone Esc press has no following bytes.
 const escTimeout = 10 * time.Millisecond
 
+// pasteWatchdogTimeout is how long the watchdog waits after paste starts
+// before flushing the buffer. This handles tcell event channel overflow
+// (256 slots) where EventPaste{End} is blocked and the event loop deadlocks.
+const pasteWatchdogTimeout = 200 * time.Millisecond
+
 // pasteStartSuffix is "[200~" — the bytes after ESC in a paste start marker.
 const pasteStartSuffix = "[200~"
 
@@ -142,16 +146,20 @@ type editEvent struct {
 // Detects bracketed paste markers (ESC[200~ / ESC[201~) in the event
 // stream — works even when tcell fails to parse them (tmux popup bug).
 //
-// All fields are accessed exclusively on the gocui event-loop goroutine.
-// The escTimer callback uses gui.Update() to re-enter the event loop.
+// Fields guarded by pasteMu (inPaste, nativePaste, pasteBuf) are shared
+// between the gocui event-loop goroutine and the paste watchdog goroutine.
+// All other fields (escBuf, escTimer, escGen) are accessed exclusively on
+// the gocui event-loop goroutine — the watchdog never touches them.
 type inputEditor struct {
 	app         *App
-	escBuf      []editEvent    // events buffered while detecting escape sequence
-	inPaste     bool           // between paste start and end markers
-	nativePaste bool           // true if paste was detected via tcell IsPasting
-	pasteBuf    strings.Builder // accumulated paste content
-	escTimer    *time.Timer    // fires to flush standalone Esc
-	escGen      uint64         // generation counter for escTimer identity
+	escBuf      []editEvent     // event-loop only: buffered escape sequence detection
+	inPaste     bool            // guarded by pasteMu: between paste start and end markers
+	nativePaste bool            // guarded by pasteMu: paste detected via tcell IsPasting
+	pasteBuf    strings.Builder // guarded by pasteMu: accumulated paste content
+	pasteMu     sync.Mutex      // guards inPaste, nativePaste, pasteBuf
+	escTimer    *time.Timer     // event-loop only: fires to flush standalone Esc
+	escGen      uint64          // event-loop only: generation counter for escTimer
+	pasteNotify chan struct{}    // signals watchdog that paste started
 }
 
 // specialKeyMap maps gocui Key constants to tmux send-keys names.
@@ -219,22 +227,29 @@ func (e *inputEditor) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modi
 		return false
 	}
 
-	// Debug: log every event to the tmux cmd log file.
-	e.debugLog("Edit: key=%d ch=%q mod=%d IsPasting=%v inPaste=%v escBuf=%d",
-		key, ch, mod, e.app.gui.IsPasting, e.inPaste, len(e.escBuf))
-
 	// If tcell detected bracketed paste natively (IsPasting), use it.
 	if e.app.gui.IsPasting {
-		if !e.inPaste {
+		e.pasteMu.Lock()
+		alreadyInPaste := e.inPaste
+		if !alreadyInPaste {
 			e.inPaste = true
 			e.nativePaste = true
+		}
+		e.pasteMu.Unlock()
+		if !alreadyInPaste {
 			e.cancelEscTimer()
 			e.escBuf = e.escBuf[:0]
+			// Notify watchdog to schedule a flush in case the paste is large
+			// enough to overflow tcell's event channel (256 slots).
+			e.notifyWatchdog()
 		}
 	}
 
 	// Inside a paste: buffer everything until end marker.
-	if e.inPaste {
+	e.pasteMu.Lock()
+	pasting := e.inPaste
+	e.pasteMu.Unlock()
+	if pasting {
 		return e.handlePaste(key, ch, mod)
 	}
 
@@ -277,8 +292,11 @@ func (e *inputEditor) handleEscSeq(key gocui.Key, ch rune, mod gocui.Modifier) b
 
 	// Check if it's a complete paste start marker.
 	if prefix == pasteStartSuffix {
+		e.pasteMu.Lock()
 		e.inPaste = true
+		e.pasteMu.Unlock()
 		e.escBuf = e.escBuf[:0]
+		e.notifyWatchdog()
 		return true
 	}
 
@@ -314,17 +332,21 @@ func (e *inputEditor) handlePaste(key gocui.Key, ch rune, mod gocui.Modifier) bo
 			} else if ev.key == gocui.KeyEsc {
 				// Another Esc mid-sequence: the original Esc+partial is paste content.
 				// Flush them and restart detection from this new Esc.
+				e.pasteMu.Lock()
 				for _, old := range e.escBuf[:len(e.escBuf)-1] {
 					e.appendPasteChar(old.key, old.ch)
 				}
+				e.pasteMu.Unlock()
 				e.escBuf = e.escBuf[:1]
 				e.escBuf[0] = editEvent{key: key, ch: ch, mod: mod}
 				return true
 			} else {
 				// Non-rune, non-Esc key: not an end marker.
+				e.pasteMu.Lock()
 				for _, ev := range e.escBuf {
 					e.appendPasteChar(ev.key, ev.ch)
 				}
+				e.pasteMu.Unlock()
 				e.escBuf = e.escBuf[:0]
 				return true
 			}
@@ -344,15 +366,19 @@ func (e *inputEditor) handlePaste(key gocui.Key, ch rune, mod gocui.Modifier) bo
 		}
 
 		// Not an end marker — the Esc and following chars are part of paste content.
+		e.pasteMu.Lock()
 		for _, ev := range e.escBuf {
 			e.appendPasteChar(ev.key, ev.ch)
 		}
+		e.pasteMu.Unlock()
 		e.escBuf = e.escBuf[:0]
 		return true
 	}
 
 	// Regular paste character.
+	e.pasteMu.Lock()
 	e.appendPasteChar(key, ch)
+	e.pasteMu.Unlock()
 	return true
 }
 
@@ -371,17 +397,31 @@ func (e *inputEditor) appendPasteChar(key gocui.Key, ch rune) {
 	}
 }
 
-// flushPaste sends the accumulated paste buffer via tmux paste-buffer.
+// flushPaste extracts the paste buffer and forwards it via tmux paste-buffer.
+// Thread-safe: called from both the gocui event loop (when paste end marker
+// is detected) and the watchdog goroutine (when tcell's event channel
+// overflows and the event loop is deadlocked).
 func (e *inputEditor) flushPaste() {
+	e.pasteMu.Lock()
 	text := e.pasteBuf.String()
 	e.pasteBuf.Reset()
 	e.inPaste = false
 	e.nativePaste = false
+	e.pasteMu.Unlock()
 	if text == "" {
 		return
 	}
-	e.debugLog("flushPaste: %d bytes", len(text))
 	e.app.forwardPaste(text)
+}
+
+// notifyWatchdog signals the paste watchdog goroutine (non-blocking).
+func (e *inputEditor) notifyWatchdog() {
+	if e.pasteNotify != nil {
+		select {
+		case e.pasteNotify <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // flushEscBuf forwards all buffered escape events as normal input.
@@ -416,13 +456,6 @@ func (e *inputEditor) startEscTimer() {
 			return nil
 		})
 	})
-}
-
-// debugLog writes to the app's debug log file if available.
-func (e *inputEditor) debugLog(format string, args ...any) {
-	if f := e.app.debugLog; f != nil {
-		fmt.Fprintf(f, "[input] "+format+"\n", args...)
-	}
 }
 
 // cancelEscTimer stops the pending escape timer if any.
