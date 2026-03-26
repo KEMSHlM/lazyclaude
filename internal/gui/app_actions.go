@@ -168,6 +168,27 @@ func (a *App) StartRename() {
 	})
 }
 
+func (a *App) StartPMSession() {
+	if a.sessions == nil || a.HasActiveDialog() {
+		return
+	}
+	go func() {
+		abs, err := filepath.Abs(".")
+		if err != nil {
+			return
+		}
+		err = a.sessions.CreatePMSession(abs)
+		a.gui.Update(func(g *gocui.Gui) error {
+			if err != nil {
+				a.setStatus(g, fmt.Sprintf("PM error: %v", err))
+			} else {
+				a.setStatus(g, "PM session started")
+			}
+			return nil
+		})
+	}()
+}
+
 func (a *App) StartWorktreeInput() {
 	if a.sessions == nil || a.HasActiveDialog() {
 		return

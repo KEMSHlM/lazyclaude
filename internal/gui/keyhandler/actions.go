@@ -24,6 +24,7 @@ type AppActions interface {
 	StartWorktreeInput()
 	SelectWorktree()
 	PurgeOrphans()
+	StartPMSession()
 
 	// Popup
 	DismissPopup(c choice.Choice)

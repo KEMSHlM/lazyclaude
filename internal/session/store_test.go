@@ -1,6 +1,8 @@
 package session_test
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -204,6 +206,85 @@ func TestStore_SyncWithTmux(t *testing.T) {
 	// orphaned: no tmux window
 	assert.Equal(t, session.StatusOrphan, all[2].Status)
 	assert.Equal(t, "", all[2].TmuxWindow)
+}
+
+// --- Role field backward-compatibility tests ---
+
+func TestStore_BackwardCompat_NoRoleField(t *testing.T) {
+	t.Parallel()
+	// JSON without a "role" field (legacy state.json)
+	legacy := `[{"id":"id-1","name":"my-app","path":"/path","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}]`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o600))
+
+	store := session.NewStore(path)
+	require.NoError(t, store.Load())
+
+	all := store.All()
+	require.Len(t, all, 1)
+	// Role must default to RoleNone (empty string) for backward compat
+	assert.Equal(t, session.RoleNone, all[0].Role)
+}
+
+func TestStore_RoleRoundTrip(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	store := session.NewStore(path)
+	sess := newTestSession("id-pm", "pm-session", "/project")
+	sess.Role = session.RolePM
+	store.Add(sess)
+	require.NoError(t, store.Save())
+
+	store2 := session.NewStore(path)
+	require.NoError(t, store2.Load())
+
+	all := store2.All()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.RolePM, all[0].Role)
+}
+
+func TestStore_RoleOmittedWhenNone(t *testing.T) {
+	t.Parallel()
+	// RoleNone sessions must not emit "role" key in JSON (omitempty)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	store := session.NewStore(path)
+	sess := newTestSession("id-1", "regular", "/project")
+	// Role is zero value (RoleNone)
+	store.Add(sess)
+	require.NoError(t, store.Save())
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var raw []map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &raw))
+	require.Len(t, raw, 1)
+	_, hasRole := raw[0]["role"]
+	assert.False(t, hasRole, "role key should be absent when RoleNone (omitempty)")
+}
+
+func TestStore_WorkerRoleRoundTrip(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	store := session.NewStore(path)
+	sess := newTestSession("id-w", "worker-1", "/project/.claude/worktrees/feat-x")
+	sess.Role = session.RoleWorker
+	store.Add(sess)
+	require.NoError(t, store.Save())
+
+	store2 := session.NewStore(path)
+	require.NoError(t, store2.Load())
+
+	all := store2.All()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.RoleWorker, all[0].Role)
 }
 
 func TestStore_SyncWithTmux_Detached(t *testing.T) {

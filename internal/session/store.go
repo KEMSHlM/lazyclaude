@@ -48,6 +48,7 @@ type Session struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Flags     []string  `json:"flags,omitempty"`
+	Role      Role      `json:"role,omitempty"`
 
 	// Runtime state (not persisted)
 	TmuxWindow string `json:"-"`
@@ -247,6 +248,32 @@ func (s *Store) BackdateForTest(id string, d time.Duration) {
 	for i := range s.sessions {
 		if s.sessions[i].ID == id {
 			s.sessions[i].CreatedAt = s.sessions[i].CreatedAt.Add(-d)
+			return
+		}
+	}
+}
+
+// SetTmuxWindow sets the TmuxWindow field of a session by ID.
+// Used in tests to inject runtime state without a full tmux sync.
+func (s *Store) SetTmuxWindow(id, window string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.sessions {
+		if s.sessions[i].ID == id {
+			s.sessions[i].TmuxWindow = window
+			return
+		}
+	}
+}
+
+// SetStatus sets the Status field of a session by ID.
+// Used in tests to inject runtime state without a full tmux sync.
+func (s *Store) SetStatus(id string, status Status) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.sessions {
+		if s.sessions[i].ID == id {
+			s.sessions[i].Status = status
 			return
 		}
 	}

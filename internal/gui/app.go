@@ -45,6 +45,8 @@ type SessionProvider interface {
 	CreateWorktree(name, prompt, projectRoot string) error
 	ResumeWorktree(worktreePath, prompt, projectRoot string) error
 	ListWorktrees(projectRoot string) ([]WorktreeInfo, error)
+	CreatePMSession(projectRoot string) error
+	CreateWorkerSession(name, prompt, projectRoot string) error
 }
 
 // WorktreeInfo describes an existing worktree for the chooser.
@@ -63,6 +65,8 @@ type SessionItem struct {
 	Status     string
 	Flags      []string
 	TmuxWindow string
+	Activity   string // "pending" or "" (empty = normal)
+	Role       string // "pm", "worker", or "" (empty = regular session)
 }
 
 // PreviewResult holds captured pane content and cursor position.
