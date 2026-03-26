@@ -24,8 +24,11 @@ curl -s -X POST http://127.0.0.1:${PORT}/msg/send \
 
 **Response:**
 ```json
-{"id": "<message-uuid>"}
+{"status": "delivered"}
 ```
+
+Messages are delivered directly to the recipient's Claude Code input via tmux.
+If the recipient session is not found, returns `404`. If not running, returns `502`.
 
 **Message types:**
 
@@ -35,32 +38,6 @@ curl -s -X POST http://127.0.0.1:${PORT}/msg/send \
 | `review_response` | PM -> Worker | Review result (approved / changes_requested) |
 | `status` | any | Status update |
 | `done` | Worker -> PM | Task completed |
-
-### GET /msg/poll?session=\<id\>
-
-Retrieve unread messages addressed to you. Messages are marked as read after retrieval.
-
-```bash
-curl -s "http://127.0.0.1:${PORT}/msg/poll?session=${SESSION_ID}" \
-  -H "X-Auth-Token: ${TOKEN}"
-```
-
-**Response:**
-```json
-[
-  {
-    "id": "abc-123",
-    "from": "worker-session-id",
-    "to": "pm-session-id",
-    "type": "review_request",
-    "body": "Please review branch feat-xyz",
-    "created_at": "2026-03-26T10:00:00Z",
-    "read": false
-  }
-]
-```
-
-Returns `[]` when no unread messages exist.
 
 ### GET /msg/sessions
 

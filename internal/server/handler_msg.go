@@ -64,6 +64,12 @@ func (s *Server) handleMsgSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	const maxBodyLen = 10 * 1024 // 10 KB
+	if len(req.Body) > maxBodyLen {
+		http.Error(w, "body too large (max 10KB)", http.StatusBadRequest)
+		return
+	}
+
 	// Resolve sessions from the lister.
 	s.mu.Lock()
 	sl := s.sessionLister
@@ -184,11 +190,14 @@ type stateSession struct {
 // readSessionsFromState reads state.json as a fallback when SessionLister is nil.
 // It also queries tmux to populate the Window and Status fields.
 func (s *Server) readSessionsFromState() []SessionInfo {
-	stateFile := filepath.Join(s.config.RuntimeDir, "..", "lazyclaude", "state.json")
-	// Try the standard data dir path.
+	// Use UserHomeDir for the standard data path.
+	// Fall back to RuntimeDir-relative path only if UserHomeDir fails.
 	home, err := os.UserHomeDir()
+	var stateFile string
 	if err == nil {
 		stateFile = filepath.Join(home, ".local", "share", "lazyclaude", "state.json")
+	} else {
+		stateFile = filepath.Join(s.config.RuntimeDir, "..", "lazyclaude", "state.json")
 	}
 
 	data, err := os.ReadFile(stateFile)
