@@ -35,14 +35,15 @@ type Config struct {
 
 // Server is the MCP WebSocket + HTTP server.
 type Server struct {
-	config       Config
-	state        *State
-	handler      *Handler
-	lock         *LockManager
-	popupOrch    *tmuxadapter.PopupOrchestrator
-	tmux         tmux.Client
-	log          *log.Logger
-	notifyBroker *event.Broker[model.Event]
+	config        Config
+	state         *State
+	handler       *Handler
+	lock          *LockManager
+	popupOrch     *tmuxadapter.PopupOrchestrator
+	tmux          tmux.Client
+	log           *log.Logger
+	notifyBroker  *event.Broker[model.Event]
+	sessionLister SessionLister
 
 	listener net.Listener
 	httpSrv  *http.Server
@@ -82,6 +83,8 @@ func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger) *Server {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/notify", s.handleNotify)
+	mux.HandleFunc("/msg/send", s.handleMsgSend)
+	mux.HandleFunc("/msg/sessions", s.handleMsgSessions)
 	mux.HandleFunc("/", s.handleWebSocket)
 
 	s.httpSrv = &http.Server{Handler: mux}
@@ -155,6 +158,15 @@ func (s *Server) State() *State {
 // RuntimeDir returns the runtime directory path.
 func (s *Server) RuntimeDir() string {
 	return s.config.RuntimeDir
+}
+
+// SetSessionLister sets the provider used by GET /msg/sessions to enumerate
+// known sessions. It is safe to call after New() and before the first request.
+// Passing nil clears the lister (the endpoint will return an empty array).
+func (s *Server) SetSessionLister(sl SessionLister) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionLister = sl
 }
 
 // NotifyBroker returns the event broker that publishes model.Event when a

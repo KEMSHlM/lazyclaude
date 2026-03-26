@@ -26,6 +26,7 @@ func TestSessionsPanel_Keys(t *testing.T) {
 		{keyhandler.KeyEvent{Rune: 'g'}, "LaunchLazygit"},
 		{keyhandler.KeyEvent{Rune: 'W'}, "SelectWorktree"},
 		{keyhandler.KeyEvent{Rune: 'D'}, "PurgeOrphans"},
+		{keyhandler.KeyEvent{Rune: 'P'}, "StartPMSession"},
 	}
 	for _, tt := range tests {
 		a := &mockActions{}

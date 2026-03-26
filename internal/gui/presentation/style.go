@@ -39,12 +39,14 @@ const (
 	IconDead     = "\x1b[31m×\x1b[0m" // red cross
 	IconOrphan   = "\x1b[33m○\x1b[0m" // yellow empty circle
 	IconDetached = "\x1b[90m◆\x1b[0m" // gray diamond
+	IconPending  = "\x1b[35m◆\x1b[0m" // magenta diamond (choice waiting)
 	IconUnknown  = "\x1b[90m?\x1b[0m" // gray question mark
 	IconArrow    = "→"
 	IconCheck    = "✓"
 	IconDot      = "·"
 	IconSep      = "│"
 	IconWorktree = "\x1b[38;5;214m[W]\x1b[0m" // orange [W] for worktree sessions
+	IconPM       = "\x1b[38;5;141m[PM]\x1b[0m" // purple [PM] for PM sessions
 )
 
 // StyledKey renders a keybinding hint: key in bold, description in dim.

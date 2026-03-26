@@ -54,6 +54,18 @@ GOEOF
         git commit -m "init" || true
         git worktree add .claude/worktrees/fix-popup -b fix-popup || true
         ;;
+    pm_worker)
+        # PM/Worker テスト: git repo を用意 (worktree 作成に必要)
+        cd /app
+        git init . || true
+        git config user.email "test@test.com"
+        git config user.name "test"
+        git add -A
+        git commit -m "init" || true
+
+        # msg API テストは Claude Code セッション内から自律実行される
+        # (人間はプロンプトを送るだけ。API は Claude Code が叩く)
+        ;;
     paste_special)
         # Bracketed paste E2E: send ESC[200~ + multiline text + ESC[201~
         cat > /tmp/paste-text.txt << 'PASTEEOF'

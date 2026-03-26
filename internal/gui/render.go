@@ -30,14 +30,16 @@ func renderSessionList(v *gocui.View, items []SessionItem, cursor int) {
 		}
 
 		var icon string
-		switch item.Status {
-		case "Running":
-			icon = " " + presentation.IconRunning
-		case "Dead":
+		switch {
+		case item.Status == "Dead":
 			icon = " " + presentation.IconDead
-		case "Orphan":
+		case item.Status == "Orphan":
 			icon = " " + presentation.IconOrphan
-		case "Detached":
+		case item.Activity == "pending":
+			icon = " " + presentation.IconPending
+		case item.Status == "Running":
+			icon = " " + presentation.IconRunning
+		case item.Status == "Detached":
 			icon = " " + presentation.IconDetached
 		}
 
@@ -47,6 +49,9 @@ func renderSessionList(v *gocui.View, items []SessionItem, cursor int) {
 		}
 		if session.IsWorktreePath(item.Path) {
 			name = presentation.IconWorktree + " " + name
+		}
+		if item.Role == "pm" {
+			name = presentation.IconPM + " " + name
 		}
 		fmt.Fprintf(v, "%s%-20s%s\n", prefix, name, icon)
 	}
