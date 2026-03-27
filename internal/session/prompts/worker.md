@@ -23,6 +23,31 @@ curl -s -X POST -H "X-Auth-Token: %s" \
 curl -s -H "X-Auth-Token: %s" \
   "http://localhost:%d/msg/sessions"
 
+## Connection Recovery
+
+The port and token above were captured at session creation. If the MCP server
+restarts, they become stale and curl will fail with "Connection refused".
+
+To get the current values:
+```bash
+PORT=$(cat %s)
+TOKEN=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['authToken'])" "%s/$PORT.lock")
+```
+
+Then use `$PORT` and `$TOKEN` in the curl commands above.
+
+### Fallback: tmux send-keys
+
+If /msg/send returns "recipient session is not running" (the recipient is
+Detached), bypass the API and paste the message directly into the tmux pane:
+
+```bash
+tmux -L lazyclaude send-keys -l -t <window-id> -- "<message text>"
+tmux -L lazyclaude send-keys -t <window-id> Enter
+```
+
+Use /msg/sessions to find the recipient's `window` field (e.g. `@4`).
+
 ## Workflow
 
 1. Complete your assigned task within the worktree.
