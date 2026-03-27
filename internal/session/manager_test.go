@@ -431,3 +431,200 @@ func TestManager_CreateWorktree_AddsWindowToExistingSession(t *testing.T) {
 	assert.Contains(t, cmd, "sh")
 	assert.Contains(t, cmd, "lazyclaude-wt-")
 }
+
+// --- Phase 4: PM/Worker session launch tests ---
+
+func newTestManagerWithMCP(t *testing.T) (*session.Manager, *tmux.MockClient, config.Paths) {
+	t.Helper()
+	tmp := t.TempDir()
+	paths := config.TestPaths(tmp)
+	setupMCPInfo(t, paths, 9876, "secret-token")
+	store := session.NewStore(filepath.Join(paths.DataDir, "state.json"))
+	mock := tmux.NewMockClient()
+	mgr := session.NewManager(store, mock, paths, nil)
+	return mgr, mock, paths
+}
+
+func TestManager_CreatePMSession_Basic(t *testing.T) {
+	t.Parallel()
+	mgr, mock, _ := newTestManagerWithMCP(t)
+	ctx := context.Background()
+
+	projectRoot := t.TempDir()
+	sess, err := mgr.CreatePMSession(ctx, projectRoot)
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+
+	assert.Equal(t, "pm", sess.Name)
+	assert.Equal(t, session.RolePM, sess.Role)
+	assert.Equal(t, projectRoot, sess.Path)
+	assert.Equal(t, session.StatusRunning, sess.Status)
+	assert.NotEmpty(t, sess.ID)
+
+	// tmux session should have been created
+	_, ok := mock.Sessions["lazyclaude"]
+	assert.True(t, ok)
+
+	// Claude command should invoke a launcher script
+	cmd := mock.LastNewSessionOpts.Command
+	assert.Contains(t, cmd, "sh")
+	assert.Contains(t, cmd, "lazyclaude-wt-")
+
+	// Should be in the store
+	all := mgr.Sessions()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.RolePM, all[0].Role)
+}
+
+func TestManager_CreatePMSession_DuplicateError(t *testing.T) {
+	t.Parallel()
+	mgr, _, _ := newTestManagerWithMCP(t)
+	ctx := context.Background()
+
+	projectRoot := t.TempDir()
+	_, err := mgr.CreatePMSession(ctx, projectRoot)
+	require.NoError(t, err)
+
+	// Second call for same projectRoot should fail
+	_, err = mgr.CreatePMSession(ctx, projectRoot)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pm")
+}
+
+func TestManager_CreatePMSession_WithExistingWorkers(t *testing.T) {
+	t.Parallel()
+	mgr, _, _ := newTestManagerWithMCP(t)
+	ctx := context.Background()
+
+	projectRoot := t.TempDir()
+	initGitRepo(t, projectRoot)
+
+	// Create a worker session first
+	_, err := mgr.CreateWorkerSession(ctx, "feat-a", "build feature a", projectRoot)
+	require.NoError(t, err)
+
+	// Create PM session — should list the worker in its prompt
+	sess, err := mgr.CreatePMSession(ctx, projectRoot)
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+	assert.Equal(t, session.RolePM, sess.Role)
+}
+
+func TestManager_CreateWorkerSession_Basic(t *testing.T) {
+	t.Parallel()
+	mgr, mock, _ := newTestManagerWithMCP(t)
+	ctx := context.Background()
+
+	projectRoot := t.TempDir()
+	initGitRepo(t, projectRoot)
+
+	sess, err := mgr.CreateWorkerSession(ctx, "feat-x", "implement feature x", projectRoot)
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+
+	assert.Equal(t, "feat-x", sess.Name)
+	assert.Equal(t, session.RoleWorker, sess.Role)
+	assert.Equal(t, session.StatusRunning, sess.Status)
+	assert.NotEmpty(t, sess.ID)
+
+	// Worktree directory should exist
+	wtDir := filepath.Join(projectRoot, ".claude", "worktrees", "feat-x")
+	info, err := os.Stat(wtDir)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+
+	// Session path should be the worktree directory
+	assert.Equal(t, wtDir, sess.Path)
+
+	// tmux session should have been created
+	_, ok := mock.Sessions["lazyclaude"]
+	assert.True(t, ok)
+
+	// Claude command should invoke a launcher script
+	cmd := mock.LastNewSessionOpts.Command
+	assert.Contains(t, cmd, "sh")
+	assert.Contains(t, cmd, "lazyclaude-wt-")
+
+	// Should be in the store with RoleWorker
+	all := mgr.Sessions()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.RoleWorker, all[0].Role)
+}
+
+func TestManager_CreateWorkerSession_InvalidName(t *testing.T) {
+	t.Parallel()
+	mgr, _, _ := newTestManagerWithMCP(t)
+	ctx := context.Background()
+
+	cases := []string{"", "  ", "foo/bar", "foo..bar", "-leading"}
+	for _, name := range cases {
+		_, err := mgr.CreateWorkerSession(ctx, name, "prompt", "/tmp/project")
+		assert.Error(t, err, "should reject name %q", name)
+	}
+}
+
+func TestManager_CreateWorkerSession_DuplicateName(t *testing.T) {
+	t.Parallel()
+	mgr, _, _ := newTestManagerWithMCP(t)
+	ctx := context.Background()
+
+	projectRoot := t.TempDir()
+	initGitRepo(t, projectRoot)
+
+	_, err := mgr.CreateWorkerSession(ctx, "dup-worker", "first task", projectRoot)
+	require.NoError(t, err)
+
+	// Second call with same name should fail
+	_, err = mgr.CreateWorkerSession(ctx, "dup-worker", "second task", projectRoot)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+}
+
+func TestManager_launchWorktreeSession_RoleNone_UsesWorktreePrompt(t *testing.T) {
+	t.Parallel()
+	mgr, mock := newTestManager(t)
+	ctx := context.Background()
+
+	projectRoot := t.TempDir()
+	initGitRepo(t, projectRoot)
+
+	// CreateWorktree uses RoleNone (backward compat path)
+	sess, err := mgr.CreateWorktree(ctx, "role-none-wt", "task", projectRoot)
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+
+	// Role should be RoleNone (zero value)
+	assert.Equal(t, session.RoleNone, sess.Role)
+
+	// Command should reference a launcher script (uses BuildWorktreePrompt path)
+	cmd := mock.LastNewSessionOpts.Command
+	assert.Contains(t, cmd, "sh")
+	assert.Contains(t, cmd, "lazyclaude-wt-")
+}
+
+func TestManager_launchWorktreeSession_RoleWorker_UsesWorkerPrompt(t *testing.T) {
+	t.Parallel()
+	mgr, mock, _ := newTestManagerWithMCP(t)
+	ctx := context.Background()
+
+	projectRoot := t.TempDir()
+	initGitRepo(t, projectRoot)
+
+	// CreateWorkerSession uses RoleWorker
+	sess, err := mgr.CreateWorkerSession(ctx, "worker-prompt-test", "task", projectRoot)
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+
+	// Role should be RoleWorker
+	assert.Equal(t, session.RoleWorker, sess.Role)
+
+	// Command should reference a launcher script
+	cmd := mock.LastNewSessionOpts.Command
+	assert.Contains(t, cmd, "sh")
+	assert.Contains(t, cmd, "lazyclaude-wt-")
+
+	// Confirm in store
+	all := mgr.Sessions()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.RoleWorker, all[0].Role)
+}

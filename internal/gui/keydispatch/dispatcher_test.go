@@ -36,7 +36,9 @@ func (m *mockActions) LaunchLazygit()                   { m.record("LaunchLazygi
 func (m *mockActions) EnterFullScreen()                 { m.record("EnterFullScreen") }
 func (m *mockActions) StartRename()                     { m.record("StartRename") }
 func (m *mockActions) StartWorktreeInput()              { m.record("StartWorktreeInput") }
+func (m *mockActions) SelectWorktree()                  { m.record("SelectWorktree") }
 func (m *mockActions) PurgeOrphans()                    { m.record("PurgeOrphans") }
+func (m *mockActions) StartPMSession()                  { m.record("StartPMSession") }
 func (m *mockActions) DismissPopup(c choice.Choice)     { m.record("DismissPopup") }
 func (m *mockActions) DismissAllPopups(c choice.Choice) { m.record("DismissAllPopups") }
 func (m *mockActions) SuspendPopups()                   { m.record("SuspendPopups") }

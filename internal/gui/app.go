@@ -41,6 +41,17 @@ type SessionProvider interface {
 	AttachSession(id string) error
 	LaunchLazygit(path, host string) error
 	CreateWorktree(name, prompt, projectRoot string) error
+	ResumeWorktree(worktreePath, prompt, projectRoot string) error
+	ListWorktrees(projectRoot string) ([]WorktreeInfo, error)
+	CreatePMSession(projectRoot string) error
+	CreateWorkerSession(name, prompt, projectRoot string) error
+}
+
+// WorktreeInfo describes an existing worktree for the chooser.
+type WorktreeInfo struct {
+	Name   string
+	Path   string
+	Branch string
 }
 
 // SessionItem is a read-only view of a session for display.
@@ -52,6 +63,8 @@ type SessionItem struct {
 	Status     string
 	Flags      []string
 	TmuxWindow string
+	Activity   string // "pending" or "" (empty = normal)
+	Role       string // "pm", "worker", or "" (empty = regular session)
 }
 
 // PreviewResult holds captured pane content and cursor position.
@@ -81,6 +94,59 @@ type App struct {
 	popupMode          config.PopupMode             // how popups are displayed (auto/tmux/overlay)
 	renameSessionID    string                     // session ID being renamed (empty = no rename in progress)
 	activeDialog       DialogKind                 // current input dialog (DialogNone = no dialog)
+	worktreeActiveField string                    // which worktree dialog field has focus ("worktree-branch" or "worktree-prompt")
+	worktreeChoices    []WorktreeInfo             // items in worktree chooser
+	worktreeCursor     int                        // selected index in chooser (len(choices) = "New")
+	selectedWorktree   string                     // path of chosen existing worktree
+	editor             *inputEditor               // fullscreen key editor (for paste flush)
+	watchdogDone       chan struct{}               // signals watchdog to stop
+	watchdogStarted    bool                        // prevents multiple watchdog goroutines
+}
+
+// startPasteWatchdog starts the watchdog goroutine if not already running.
+// Called from layout when the editor is first created.
+func (a *App) startPasteWatchdog() {
+	if a.watchdogStarted || a.editor == nil || a.watchdogDone == nil {
+		return
+	}
+	a.watchdogStarted = true
+	ch := a.editor.pasteNotify
+	done := a.watchdogDone
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-ch:
+				// Drain loop: keep flushing partial content while paste is ongoing.
+				// Large pastes overflow tcell's event channel (256 slots), blocking
+				// the event loop. Each drain unblocks the channel so more characters
+				// can arrive. The loop exits when inPaste becomes false (paste end
+				// marker was processed by the event loop).
+			drain:
+				for {
+					select {
+					case <-done:
+						return
+					case <-time.After(pasteWatchdogTimeout):
+					}
+					if a.editor == nil {
+						break drain
+					}
+					a.editor.pasteMu.Lock()
+					stillPasting := a.editor.inPaste
+					hasData := a.editor.pasteBuf.Len() > 0
+					a.editor.pasteMu.Unlock()
+					if !stillPasting {
+						break drain
+					}
+					if hasData {
+						a.editor.drainPaste()
+					}
+				}
+			}
+		}
+	}()
 }
 
 // SetPopupMode sets the popup display mode.
@@ -172,6 +238,10 @@ func (a *App) Run() error {
 	// Serial key forwarder: preserves keystroke order (critical for IME input).
 	done := make(chan struct{})
 	go a.fullscreen.RunKeyForwarder(done)
+
+	// Paste watchdog: started lazily when the editor is first created.
+	// See runPasteWatchdog().
+	a.watchdogDone = done
 
 	// Refresh loop: event-driven via notify channels + ticker fallback.
 	go func() {
@@ -265,8 +335,9 @@ func (a *App) SetNotifyBroker(broker *event.Broker[model.Event]) {
 
 // keyCmd is a queued key forwarding command.
 type keyCmd struct {
-	target string
-	key    string
+	target  string
+	key     string
+	literal bool // true = send via send-keys -l (literal text, not key names)
 }
 
 

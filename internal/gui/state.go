@@ -72,7 +72,7 @@ func (a *App) forwardKey(ch rune) {
 	if target == "" {
 		return
 	}
-	a.fullscreen.EnqueueKey(target, RuneToTmuxKey(ch))
+	a.fullscreen.EnqueueLiteral(target, RuneToLiteral(ch))
 	a.fullscreen.TriggerRefresh()
 }
 
@@ -84,3 +84,20 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 	a.fullscreen.EnqueueKey(target, tmuxKey)
 	a.fullscreen.TriggerRefresh()
 }
+
+// forwardPaste sends text as a bracketed paste to the Claude Code pane.
+// Executes synchronously to serialize tmux load-buffer/paste-buffer calls.
+// Callers (watchdog drainPaste, event loop flushPaste) already run outside
+// the hot gocui event loop, so blocking here is acceptable.
+func (a *App) forwardPaste(text string) {
+	target := a.resolveForwardTarget()
+	if target == "" {
+		return
+	}
+	if a.fullscreen.forwarder == nil {
+		return
+	}
+	_ = a.fullscreen.forwarder.ForwardPaste(target, text)
+	a.fullscreen.TriggerRefresh()
+}
+

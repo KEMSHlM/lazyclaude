@@ -30,14 +30,16 @@ func renderSessionList(v *gocui.View, items []SessionItem, cursor int) {
 		}
 
 		var icon string
-		switch item.Status {
-		case "Running":
-			icon = " " + presentation.IconRunning
-		case "Dead":
+		switch {
+		case item.Status == "Dead":
 			icon = " " + presentation.IconDead
-		case "Orphan":
+		case item.Status == "Orphan":
 			icon = " " + presentation.IconOrphan
-		case "Detached":
+		case item.Activity == "pending":
+			icon = " " + presentation.IconPending
+		case item.Status == "Running":
+			icon = " " + presentation.IconRunning
+		case item.Status == "Detached":
 			icon = " " + presentation.IconDetached
 		}
 
@@ -48,8 +50,37 @@ func renderSessionList(v *gocui.View, items []SessionItem, cursor int) {
 		if session.IsWorktreePath(item.Path) {
 			name = presentation.IconWorktree + " " + name
 		}
+		if item.Role == "pm" {
+			name = presentation.IconPM + " " + name
+		}
 		fmt.Fprintf(v, "%s%-20s%s\n", prefix, name, icon)
 	}
+
+	v.SetCursor(0, cursor)
+}
+
+// renderWorktreeChooser writes the worktree selection list to a gocui view.
+func renderWorktreeChooser(v *gocui.View, items []WorktreeInfo, cursor int) {
+	v.Clear()
+	for i, item := range items {
+		prefix := "  "
+		if i == cursor {
+			prefix = presentation.FgCyan + presentation.Bold + "> " + presentation.Reset
+		}
+		branch := item.Branch
+		if branch == "" {
+			branch = "detached"
+		}
+		fmt.Fprintf(v, "%s%s %s(%s)\n", prefix,
+			presentation.IconWorktree, item.Name,
+			presentation.Dim+branch+presentation.Reset)
+	}
+	// "New worktree" entry
+	prefix := "  "
+	if cursor == len(items) {
+		prefix = presentation.FgCyan + presentation.Bold + "> " + presentation.Reset
+	}
+	fmt.Fprintf(v, "%s%s+ New worktree%s\n", prefix, presentation.FgGreen, presentation.Reset)
 
 	v.SetCursor(0, cursor)
 }

@@ -89,6 +89,7 @@ func newRootCmd() *cobra.Command {
 			inProcessSrv := tryStartInProcessServer(paths, tmuxClient, tmuxSocket, logger)
 			if inProcessSrv != nil {
 				notifyBroker = inProcessSrv.NotifyBroker()
+				inProcessSrv.SetSessionLister(&sessionListerAdapter{mgr: mgr})
 				lc.Register("mcp-server", func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					defer cancel()
@@ -216,6 +217,28 @@ func ensureMCPServer() {
 	}
 }
 
+// sessionListerAdapter bridges session.Manager to server.SessionLister.
+// It converts []session.Session to []server.SessionInfo on each call.
+type sessionListerAdapter struct {
+	mgr *session.Manager
+}
+
+func (a *sessionListerAdapter) Sessions() []server.SessionInfo {
+	sessions := a.mgr.Sessions()
+	items := make([]server.SessionInfo, len(sessions))
+	for i, s := range sessions {
+		items[i] = server.SessionInfo{
+			ID:     s.ID,
+			Name:   s.Name,
+			Role:   string(s.Role),
+			Path:   s.Path,
+			Window: s.TmuxWindow,
+			Status: s.Status.String(),
+		}
+	}
+	return items
+}
+
 // sessionAdapter bridges session.Manager to gui.SessionProvider.
 type sessionAdapter struct {
 	mgr          *session.Manager
@@ -228,8 +251,28 @@ type sessionAdapter struct {
 
 func (a *sessionAdapter) Sessions() []gui.SessionItem {
 	sessions := a.mgr.Sessions()
+	pending := pendingWindowSet(a.PendingNotifications())
+	return buildSessionItems(sessions, pending)
+}
+
+// pendingWindowSet builds a set of tmux window IDs that have pending notifications.
+func pendingWindowSet(notifications []*model.ToolNotification) map[string]bool {
+	set := make(map[string]bool, len(notifications))
+	for _, n := range notifications {
+		set[n.Window] = true
+	}
+	return set
+}
+
+// buildSessionItems converts session.Session slice to gui.SessionItem slice,
+// setting Activity="pending" for Running sessions whose TmuxWindow is in the pending set.
+func buildSessionItems(sessions []session.Session, pending map[string]bool) []gui.SessionItem {
 	items := make([]gui.SessionItem, len(sessions))
 	for i, s := range sessions {
+		activity := ""
+		if s.Status == session.StatusRunning && pending[s.TmuxWindow] {
+			activity = "pending"
+		}
 		items[i] = gui.SessionItem{
 			ID:         s.ID,
 			Name:       s.Name,
@@ -238,6 +281,8 @@ func (a *sessionAdapter) Sessions() []gui.SessionItem {
 			Status:     s.Status.String(),
 			Flags:      s.Flags,
 			TmuxWindow: s.TmuxWindow,
+			Activity:   activity,
+			Role:       string(s.Role),
 		}
 	}
 	return items
@@ -326,6 +371,33 @@ func (a *sessionAdapter) SendChoice(window string, c gui.Choice) error {
 func (a *sessionAdapter) CreateWorktree(name, prompt, projectRoot string) error {
 	_, err := a.mgr.CreateWorktree(context.Background(), name, prompt, projectRoot)
 	return err
+}
+
+func (a *sessionAdapter) ResumeWorktree(worktreePath, prompt, projectRoot string) error {
+	_, err := a.mgr.ResumeWorktree(context.Background(), worktreePath, prompt, projectRoot)
+	return err
+}
+
+func (a *sessionAdapter) CreatePMSession(projectRoot string) error {
+	_, err := a.mgr.CreatePMSession(context.Background(), projectRoot)
+	return err
+}
+
+func (a *sessionAdapter) CreateWorkerSession(name, prompt, projectRoot string) error {
+	_, err := a.mgr.CreateWorkerSession(context.Background(), name, prompt, projectRoot)
+	return err
+}
+
+func (a *sessionAdapter) ListWorktrees(projectRoot string) ([]gui.WorktreeInfo, error) {
+	items, err := session.ListWorktrees(context.Background(), projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]gui.WorktreeInfo, len(items))
+	for i, item := range items {
+		result[i] = gui.WorktreeInfo{Name: item.Name, Path: item.Path, Branch: item.Branch}
+	}
+	return result, nil
 }
 
 func (a *sessionAdapter) LaunchLazygit(path, host string) error {
