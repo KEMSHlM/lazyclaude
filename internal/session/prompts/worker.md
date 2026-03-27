@@ -31,7 +31,7 @@ restarts, they become stale and curl will fail with "Connection refused".
 To get the current values:
 ```bash
 PORT=$(cat %s)
-TOKEN=$(python3 -c "import json; print(json.load(open('$(echo %s/$PORT.lock)'))['authToken'])")
+TOKEN=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['authToken'])" "%s/$PORT.lock")
 ```
 
 Then use `$PORT` and `$TOKEN` in the curl commands above.
