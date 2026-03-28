@@ -104,6 +104,11 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	s.config.Port = port
 
+	// Clean stale lock files from crashed servers before writing our own.
+	if n := s.lock.CleanStale(); n > 0 {
+		s.log.Printf("cleaned %d stale lock file(s)", n)
+	}
+
 	// Write lock file
 	if err := s.lock.Write(port, s.config.Token); err != nil {
 		ln.Close()

@@ -135,6 +135,50 @@ func TestWriteClaudeSettings(t *testing.T) {
 	assert.Equal(t, "bar", read["foo"])
 }
 
+// TestHookCommand_ValidatesLockPID verifies that hook commands check PID liveness
+// before using a lock file, preventing connection to stale/dead servers.
+func TestHookCommand_ValidatesLockPID(t *testing.T) {
+	t.Parallel()
+	settings := config.SetLazyClaudeHooks(map[string]any{})
+	hooks := settings["hooks"].(map[string]any)
+
+	for _, hookType := range []string{"PreToolUse", "Notification"} {
+		entries := hooks[hookType].([]any)
+		entry := entries[0].(map[string]any)
+		hookList := entry["hooks"].([]any)
+		hook := hookList[0].(map[string]any)
+		cmd := hook["command"].(string)
+
+		// Hook must validate PID of lock file owner before using it.
+		// process.kill(pid, 0) is the Node.js way to check PID liveness.
+		if !containsAny(cmd, "process.kill", "kill(") {
+			t.Errorf("%s hook must validate lock PID liveness (process.kill(pid, 0))", hookType)
+		}
+	}
+}
+
+func containsAny(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
+}
+
+func containsStr(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
 func TestSetLazyClaudeHooks_Roundtrip(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
