@@ -891,19 +891,30 @@ func (g *Gui) onResize() {
 	// g.screen.Sync()
 }
 
-// filterPasteEvents reads from rawEvents, detects ESC[200~ paste markers
-// (for tmux display-popup where tcell doesn't emit EventPaste), and forwards
-// events to gEvents. Native EventPaste is already handled in pollEvent via
-// accumulatePasteNative, so this filter only handles the raw ESC sequence case.
+// filterPasteEvents reads from rawEvents, detects paste events (both native
+// EventPaste and raw ESC[200~ fallback), accumulates paste content, and
+// forwards a single eventPasteContent to gEvents. Non-paste events pass
+// through unchanged.
+//
+// This is the ONLY place paste accumulation happens. pollEvent just passes
+// events through — no PollEvent goroutines or concurrent access.
 func (g *Gui) filterPasteEvents() {
 	for {
 		select {
 		case <-g.stop:
 			return
 		case ev := <-g.rawEvents:
-			if ev.Type == eventKey && ev.Key == KeyEsc && ev.Mod == 0 {
+			switch {
+			case ev.Type == eventPaste && ev.Start:
+				// Native tcell EventPaste{Start} — accumulate until End.
+				text := g.accumulatePasteFromChannel()
+				if text != "" {
+					g.gEvents <- GocuiEvent{Type: eventPasteContent, PasteText: text}
+				}
+			case ev.Type == eventKey && ev.Key == KeyEsc && ev.Mod == 0:
+				// Potential raw ESC[200~ (tmux popup fallback).
 				g.filterEscSequence(ev)
-			} else {
+			default:
 				g.gEvents <- ev
 			}
 		}
@@ -947,8 +958,8 @@ func (g *Gui) filterEscSequence(esc GocuiEvent) {
 }
 
 // accumulatePasteFromChannel reads GocuiEvents from rawEvents until it
-// detects the paste end marker (ESC[201~) or times out. Returns the
-// accumulated paste text.
+// detects the paste end (native eventPaste{End} or raw ESC[201~) or
+// times out. Returns the accumulated paste text.
 func (g *Gui) accumulatePasteFromChannel() string {
 	var buf strings.Builder
 	var escBuf []rune
@@ -967,6 +978,11 @@ func (g *Gui) accumulatePasteFromChannel() string {
 				}
 			}
 			timer.Reset(pasteAccumTimeout)
+
+			// Native paste end marker from tcell.
+			if ev.Type == eventPaste && !ev.Start {
+				return buf.String()
+			}
 
 			if ev.Type != eventKey {
 				continue // Ignore non-key events during paste.
