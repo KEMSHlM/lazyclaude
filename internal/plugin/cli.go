@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,11 +20,13 @@ type execRunner struct {
 
 func (r *execRunner) Run(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, r.claudePath, args...)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("claude %v: %w", args, err)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("claude %v: %w (stderr: %s)", args, err, stderr.String())
 	}
-	return string(out), nil
+	return stdout.String(), nil
 }
 
 // ExecCLI implements plugin CLI operations by spawning `claude plugins` subprocesses.
