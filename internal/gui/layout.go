@@ -155,7 +155,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	v.Clear()
 	var nodes []TreeNode
 	if a.sessions != nil {
-		nodes = a.treeNodes()
+		nodes = a.filteredTreeNodes()
 	}
 	if len(nodes) > 0 {
 		if a.cursor >= len(nodes) {
@@ -235,6 +235,24 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 		g.DeleteView(helpPreviewView)
 		g.DeleteView(helpHintView)
 		g.DeleteView(helpBorderView)
+	}
+
+	// Search input overlay (inline at bottom of active panel).
+	if a.dialog.Kind == DialogSearch {
+		var panelRect Rect
+		switch a.dialog.SearchPanel {
+		case "sessions":
+			panelRect = l.Sessions
+		case "plugins":
+			panelRect = l.Plugins
+		case "logs":
+			panelRect = l.Server
+		}
+		if err := a.layoutSearchInput(g, panelRect); err != nil {
+			return err
+		}
+	} else {
+		g.DeleteView(searchInputView)
 	}
 
 	// Focus priority: popup > dialog > panel.

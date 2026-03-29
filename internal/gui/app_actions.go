@@ -32,14 +32,14 @@ func (a *App) refreshTreeNodes() {
 	a.cachedNodes = BuildTreeNodes(a.sessions.Projects())
 }
 
-// treeNodes returns the cached flat tree node list.
+// treeNodes returns the tree node list, filtered when search is active.
 func (a *App) treeNodes() []TreeNode {
-	return a.cachedNodes
+	return a.filteredTreeNodes()
 }
 
 // currentNode returns the tree node at the cursor, or nil if out of bounds.
 func (a *App) currentNode() *TreeNode {
-	nodes := a.cachedNodes
+	nodes := a.filteredTreeNodes()
 	if a.cursor < 0 || a.cursor >= len(nodes) {
 		return nil
 	}
@@ -762,6 +762,38 @@ func panelNameToScope(name string) keymap.Scope {
 	default:
 		return keymap.ScopeGlobal
 	}
+}
+
+// --- Search ---
+
+func (a *App) StartSearch() {
+	if a.HasActiveDialog() || a.fullscreen.IsActive() {
+		return
+	}
+
+	panel := a.panelManager.ActivePanel()
+	if panel == nil {
+		return
+	}
+	panelName := panel.Name()
+
+	// Save pre-search cursor position for Esc restore.
+	var preCursor int
+	switch panelName {
+	case "sessions":
+		preCursor = a.cursor
+	case "plugins":
+		preCursor = a.pluginState.Cursor()
+	case "logs":
+		preCursor = a.logs.CursorY()
+	default:
+		return
+	}
+
+	a.dialog.Kind = DialogSearch
+	a.dialog.SearchQuery = ""
+	a.dialog.SearchPanel = panelName
+	a.dialog.SearchPreCursor = preCursor
 }
 
 // --- Application ---
