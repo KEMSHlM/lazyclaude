@@ -152,7 +152,7 @@ func (a *App) syncPluginProject() {
 	if node.Kind == ProjectNode && node.Project != nil {
 		projectPath = node.Project.Path
 	} else if node.Session != nil {
-		projectPath = node.Session.Path
+		projectPath = session.InferProjectRoot(node.Session.Path)
 	}
 	if projectPath == "" || projectPath == a.pluginState.projectDir {
 		return
@@ -166,9 +166,63 @@ func (a *App) syncPluginProject() {
 	})
 }
 
+// --- Path helpers ---
+
+// currentProjectRoot returns the project root path for the currently selected
+// tree node. For ProjectNode, returns Project.Path directly. For SessionNode,
+// infers the project root via InferProjectRoot (handles worktree paths).
+// Falls back to filepath.Abs(".") when no node is selected.
+func (a *App) currentProjectRoot() string {
+	node := a.currentNode()
+	if node != nil {
+		switch node.Kind {
+		case ProjectNode:
+			if node.Project != nil && node.Project.Path != "" {
+				return node.Project.Path
+			}
+		case SessionNode:
+			if node.Session != nil && node.Session.Path != "" {
+				return session.InferProjectRoot(node.Session.Path)
+			}
+		}
+	}
+	abs, err := filepath.Abs(".")
+	if err != nil {
+		return "."
+	}
+	return session.InferProjectRoot(abs)
+}
+
 // --- Session operations ---
 
 func (a *App) CreateSession() {
+	if a.sessions == nil {
+		return
+	}
+	host := DetectSSHHost()
+	var path string
+	if host != "" {
+		path = "."
+		if rp := DetectRemotePath(); rp != "" {
+			path = rp
+		}
+	} else {
+		path = a.currentProjectRoot()
+	}
+	if err := a.sessions.Create(path, host); err != nil {
+		a.gui.Update(func(g *gocui.Gui) error {
+			a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			return nil
+		})
+		return
+	}
+	a.gui.Update(func(g *gocui.Gui) error {
+		a.setStatus(g, "Session created")
+		return nil
+	})
+}
+
+func (a *App) CreateSessionAtCWD() {
 	if a.sessions == nil {
 		return
 	}
@@ -187,7 +241,7 @@ func (a *App) CreateSession() {
 		return
 	}
 	a.gui.Update(func(g *gocui.Gui) error {
-		a.setStatus(g, "Session created")
+		a.setStatus(g, "Session created (CWD)")
 		return nil
 	})
 }
@@ -307,13 +361,9 @@ func (a *App) StartPMSession() {
 	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
+	projectRoot := a.currentProjectRoot()
 	go func() {
-		abs, err := filepath.Abs(".")
-		if err != nil {
-			return
-		}
-		projectRoot := session.InferProjectRoot(abs)
-		err = a.sessions.CreatePMSession(projectRoot)
+		err := a.sessions.CreatePMSession(projectRoot)
 		a.gui.Update(func(g *gocui.Gui) error {
 			if err != nil {
 				a.setStatus(g, fmt.Sprintf("PM error: %v", err))
@@ -341,12 +391,8 @@ func (a *App) SelectWorktree() {
 	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
+	projectRoot := a.currentProjectRoot()
 	go func() {
-		abs, err := filepath.Abs(".")
-		if err != nil {
-			return
-		}
-		projectRoot := session.InferProjectRoot(abs)
 		items, err := a.sessions.ListWorktrees(projectRoot)
 		a.gui.Update(func(g *gocui.Gui) error {
 			if err != nil {

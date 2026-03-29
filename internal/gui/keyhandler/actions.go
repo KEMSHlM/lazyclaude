@@ -16,6 +16,7 @@ type AppActions interface {
 
 	// Session operations
 	CreateSession()
+	CreateSessionAtCWD()
 	DeleteSession()
 	AttachSession()
 	LaunchLazygit()
