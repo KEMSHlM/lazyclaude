@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -222,7 +223,10 @@ func (a *App) Run() error {
 		go func() {
 			ctx := context.Background()
 			if err := a.plugins.Refresh(ctx); err != nil {
-				a.pluginState.errMsg = err.Error()
+				msg := err.Error()
+				a.pluginState.errMsg = msg
+				// Debug: write full error to temp file
+				_ = os.WriteFile("/tmp/lazyclaude/plugin-refresh-error.txt", []byte(msg), 0o644)
 			}
 			a.gui.Update(func(g *gocui.Gui) error { return nil })
 		}()
