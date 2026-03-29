@@ -255,7 +255,7 @@ func NewGui(opts NewGuiOpts) (*Gui, error) {
 	g.stop = make(chan struct{})
 
 	g.gEvents = make(chan GocuiEvent, 4096)
-	g.rawEvents = make(chan GocuiEvent, 256)
+	g.rawEvents = make(chan GocuiEvent, 4096)
 	g.userEvents = make(chan userEvent, 20)
 	g.taskManager = newTaskManager()
 
@@ -773,11 +773,7 @@ func (g *Gui) MainLoop() error {
 			case <-g.stop:
 				return
 			default:
-				logPasteEvent("pollGoroutine: calling pollEvent... rawEvents len=%d cap=%d", len(g.rawEvents), cap(g.rawEvents))
-				ev := g.pollEvent()
-				logPasteEvent("pollGoroutine: got event type=%d, sending to rawEvents", ev.Type)
-				g.rawEvents <- ev
-				logPasteEvent("pollGoroutine: sent to rawEvents")
+				g.rawEvents <- g.pollEvent()
 			}
 		}
 	}()
@@ -910,9 +906,8 @@ func (g *Gui) filterPasteEvents() {
 		case ev := <-g.rawEvents:
 			switch {
 			case ev.Type == eventPaste && ev.Start:
-				logPasteEvent("filter: eventPaste{Start} → accumulatePasteFromChannel")
+				g.gEvents <- GocuiEvent{Type: eventPaste, Start: true}
 				text := g.accumulatePasteFromChannel()
-				logPasteEvent("filter: accumulated %d bytes", len(text))
 				if text != "" {
 					g.gEvents <- GocuiEvent{Type: eventPasteContent, PasteText: text}
 				}
@@ -932,7 +927,18 @@ func (g *Gui) filterPasteEvents() {
 func (g *Gui) filterEscSequence(esc GocuiEvent) {
 	consumed := []GocuiEvent{esc}
 
+	timer := time.NewTimer(escSeqTimeout)
+	defer timer.Stop()
 	for i := 0; i < len(pasteStartMarker); i++ {
+		if i > 0 {
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(escSeqTimeout)
+		}
 		select {
 		case ev := <-g.rawEvents:
 			consumed = append(consumed, ev)
@@ -943,7 +949,7 @@ func (g *Gui) filterEscSequence(esc GocuiEvent) {
 				}
 				return
 			}
-		case <-time.After(escSeqTimeout):
+		case <-timer.C:
 			// Timeout — standalone Esc or partial sequence.
 			for _, c := range consumed {
 				g.gEvents <- c
@@ -987,12 +993,10 @@ func (g *Gui) accumulatePasteFromChannel() string {
 
 			// Native paste end marker from tcell.
 			if ev.Type == eventPaste && !ev.Start {
-				logPasteEvent("accumulate: eventPaste{End} after %d events, %d bytes", eventCount, buf.Len())
 				return buf.String()
 			}
 
 			if ev.Type != eventKey {
-				logPasteEvent("accumulate: skip non-key event type=%d", ev.Type)
 				continue // Ignore non-key events during paste.
 			}
 
@@ -1043,7 +1047,6 @@ func (g *Gui) accumulatePasteFromChannel() string {
 			appendGocuiKeyToBuilder(&buf, ev)
 
 		case <-timer.C:
-			logPasteEvent("accumulate: TIMEOUT after %d events, %d bytes, rawEvents len=%d", eventCount, buf.Len(), len(g.rawEvents))
 			if inEsc {
 				buf.WriteRune('\x1b')
 				for _, r := range escBuf {

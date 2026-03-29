@@ -5,27 +5,10 @@
 package gocui
 
 import (
-	"fmt"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
 )
-
-var pasteDebugLog *os.File
-
-func init() {
-	pasteDebugLog, _ = os.OpenFile("/tmp/lazyclaude/paste-events.log",
-		os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-}
-
-func logPasteEvent(format string, args ...any) {
-	if pasteDebugLog != nil {
-		fmt.Fprintf(pasteDebugLog, format+"\n", args...)
-		pasteDebugLog.Sync()
-	}
-}
 
 const (
 	// pasteAccumTimeout is the maximum time to wait for more paste content
@@ -459,33 +442,11 @@ func (g *Gui) pollEvent() GocuiEvent {
 			Focused: tev.Focused,
 		}
 	case *tcell.EventPaste:
-		logPasteEvent("pollEvent: EventPaste start=%v", tev.Start())
 		return GocuiEvent{
 			Type:  eventPaste,
 			Start: tev.Start(),
 		}
 	default:
 		return GocuiEvent{Type: eventNone}
-	}
-}
-
-// appendTcellKeyToBuilder appends the character representation of a tcell key
-// event to a strings.Builder.
-func appendTcellKeyToBuilder(buf *strings.Builder, ev *tcell.EventKey) {
-	switch ev.Key() {
-	case tcell.KeyRune:
-		buf.WriteRune(ev.Rune())
-	case tcell.KeyEnter:
-		buf.WriteRune('\n')
-	case tcell.KeyTab:
-		buf.WriteRune('\t')
-	case tcell.KeyEscape:
-		buf.WriteRune('\x1b')
-	default:
-		// Control keys, function keys, etc. inside paste are rare.
-		// Best effort: if the key maps to a rune, include it.
-		if ev.Rune() != 0 {
-			buf.WriteRune(ev.Rune())
-		}
 	}
 }
