@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 )
 
@@ -20,6 +21,8 @@ type execRunner struct {
 
 func (r *execRunner) Run(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, r.claudePath, args...)
+	// Force non-interactive mode to prevent ANSI escape sequences in output.
+	cmd.Env = append(os.Environ(), "TERM=dumb", "NO_COLOR=1")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
