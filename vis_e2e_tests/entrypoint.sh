@@ -67,11 +67,11 @@ GOEOF
         # (人間はプロンプトを送るだけ。API は Claude Code が叩く)
         ;;
     plugin_mode)
-        # プラグインモード E2E: claude plugins が最低限動くよう準備
-        mkdir -p /root/.claude/plugins
-        echo '{"version":2,"plugins":{}}' > /root/.claude/plugins/installed_plugins.json
-        echo '{}' > /root/.claude/plugins/known_marketplaces.json
-        echo '{"repositories":{}}' > /root/.claude/plugins/config.json
+        # プラグインモード E2E: プラグインの install/toggle/uninstall を実演
+        # 1. 公式マーケットプレイスを追加 (既にあればスキップ)
+        claude plugins marketplace add anthropics/claude-plugins-official 2>/dev/null || true
+        # 2. テスト用プラグインをインストール
+        claude plugins install example-plugin --scope project 2>/dev/null || true
         ;;
     paste_special)
         # Bracketed paste E2E: send ESC[200~ + multiline text + ESC[201~
