@@ -33,6 +33,25 @@ func (r *Registry) Match(ch rune, key gocui.Key, mod gocui.Modifier, scope Scope
 	return ActionDef{}, false
 }
 
+// MatchTab finds an action matching the key event in the given scope and tab.
+// Actions with Tab == TabAll match any tab.
+func (r *Registry) MatchTab(ch rune, key gocui.Key, mod gocui.Modifier, scope Scope, tab int) (ActionDef, bool) {
+	for _, def := range r.defs {
+		if def.Scope != scope {
+			continue
+		}
+		if def.Tab != TabAll && def.Tab != tab {
+			continue
+		}
+		for _, b := range def.Bindings {
+			if b.Matches(key, ch, mod) {
+				return def, true
+			}
+		}
+	}
+	return ActionDef{}, false
+}
+
 // HintsForScope returns all actions with non-empty HintLabel for the given scope,
 // in registration order. Used to generate the options bar.
 func (r *Registry) HintsForScope(scope Scope) []ActionDef {
@@ -41,6 +60,22 @@ func (r *Registry) HintsForScope(scope Scope) []ActionDef {
 		if def.Scope == scope && def.HintLabel != "" {
 			result = append(result, def)
 		}
+	}
+	return result
+}
+
+// HintsForScopeTab returns hints filtered by scope and tab index.
+// Actions with Tab == TabAll are included for any tab.
+func (r *Registry) HintsForScopeTab(scope Scope, tab int) []ActionDef {
+	var result []ActionDef
+	for _, def := range r.defs {
+		if def.Scope != scope || def.HintLabel == "" {
+			continue
+		}
+		if def.Tab != TabAll && def.Tab != tab {
+			continue
+		}
+		result = append(result, def)
 	}
 	return result
 }
@@ -236,64 +271,54 @@ func Default() *Registry {
 		Scope:    ScopeSession,
 	})
 
-	// --- Plugins panel (Installed tab) ---
+	// --- Plugins panel ---
+	// Tab: TabAll = both tabs, 0 = Installed only, 1 = Marketplace only
 	r.Register(ActionDef{
 		Action:   ActionPluginCursorDown,
 		Bindings: []KeyBinding{{Rune: 'j'}, {Key: gocui.KeyArrowDown}},
 		Scope:    ScopePlugins,
+		Tab:      TabAll,
 	})
 	r.Register(ActionDef{
 		Action:   ActionPluginCursorUp,
 		Bindings: []KeyBinding{{Rune: 'k'}, {Key: gocui.KeyArrowUp}},
 		Scope:    ScopePlugins,
+		Tab:      TabAll,
 	})
 	r.Register(ActionDef{
 		Action:    ActionPluginToggleEnabled,
 		Bindings:  []KeyBinding{{Rune: 'e'}},
 		Scope:     ScopePlugins,
+		Tab:       0,
 		HintLabel: "toggle",
 	})
 	r.Register(ActionDef{
 		Action:    ActionPluginUninstall,
 		Bindings:  []KeyBinding{{Rune: 'd'}},
 		Scope:     ScopePlugins,
+		Tab:       0,
 		HintLabel: "uninstall",
 	})
 	r.Register(ActionDef{
 		Action:    ActionPluginUpdate,
 		Bindings:  []KeyBinding{{Rune: 'u'}},
 		Scope:     ScopePlugins,
+		Tab:       0,
 		HintLabel: "update",
 	})
 	r.Register(ActionDef{
 		Action:    ActionPluginRefresh,
 		Bindings:  []KeyBinding{{Rune: 'r'}},
 		Scope:     ScopePlugins,
+		Tab:       TabAll,
 		HintLabel: "refresh",
-	})
-
-	// --- Marketplace tab ---
-	r.Register(ActionDef{
-		Action:   ActionPluginCursorDown,
-		Bindings: []KeyBinding{{Rune: 'j'}, {Key: gocui.KeyArrowDown}},
-		Scope:    ScopeMarketplace,
-	})
-	r.Register(ActionDef{
-		Action:   ActionPluginCursorUp,
-		Bindings: []KeyBinding{{Rune: 'k'}, {Key: gocui.KeyArrowUp}},
-		Scope:    ScopeMarketplace,
 	})
 	r.Register(ActionDef{
 		Action:    ActionPluginInstall,
 		Bindings:  []KeyBinding{{Rune: 'i'}},
-		Scope:     ScopeMarketplace,
+		Scope:     ScopePlugins,
+		Tab:       1,
 		HintLabel: "install",
-	})
-	r.Register(ActionDef{
-		Action:    ActionPluginRefresh,
-		Bindings:  []KeyBinding{{Rune: 'r'}},
-		Scope:     ScopeMarketplace,
-		HintLabel: "refresh",
 	})
 
 	// --- Logs panel ---

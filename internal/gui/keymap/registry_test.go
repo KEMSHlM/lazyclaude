@@ -149,7 +149,7 @@ func TestDefault_HasAllScopes(t *testing.T) {
 	assert.True(t, scopes[keymap.ScopeGlobal])
 	assert.True(t, scopes[keymap.ScopeSession])
 	assert.True(t, scopes[keymap.ScopePlugins])
-	assert.True(t, scopes[keymap.ScopeMarketplace])
+	// ScopeMarketplace removed — plugins use Tab field instead
 	assert.True(t, scopes[keymap.ScopeLog])
 	assert.True(t, scopes[keymap.ScopePopup])
 	assert.True(t, scopes[keymap.ScopeFullScreen])
@@ -220,4 +220,74 @@ func TestKeyBinding_HintKey(t *testing.T) {
 	for _, tt := range tests {
 		assert.Equal(t, tt.want, tt.binding.HintKey())
 	}
+}
+
+func TestMatchTab_FiltersCorrectly(t *testing.T) {
+	t.Parallel()
+	r := keymap.NewRegistry()
+	r.Register(keymap.ActionDef{
+		Action:   keymap.ActionPluginUninstall,
+		Bindings: []keymap.KeyBinding{{Rune: 'd'}},
+		Scope:    keymap.ScopePlugins,
+		Tab:      0,
+	})
+	r.Register(keymap.ActionDef{
+		Action:   keymap.ActionPluginInstall,
+		Bindings: []keymap.KeyBinding{{Rune: 'i'}},
+		Scope:    keymap.ScopePlugins,
+		Tab:      1,
+	})
+	r.Register(keymap.ActionDef{
+		Action:   keymap.ActionPluginRefresh,
+		Bindings: []keymap.KeyBinding{{Rune: 'r'}},
+		Scope:    keymap.ScopePlugins,
+		Tab:      keymap.TabAll,
+	})
+
+	// 'd' matches on tab 0 (Installed) but not on tab 1
+	_, ok := r.MatchTab('d', 0, gocui.ModNone, keymap.ScopePlugins, 0)
+	assert.True(t, ok)
+	_, ok = r.MatchTab('d', 0, gocui.ModNone, keymap.ScopePlugins, 1)
+	assert.False(t, ok)
+
+	// 'i' matches on tab 1 (Marketplace) but not on tab 0
+	_, ok = r.MatchTab('i', 0, gocui.ModNone, keymap.ScopePlugins, 1)
+	assert.True(t, ok)
+	_, ok = r.MatchTab('i', 0, gocui.ModNone, keymap.ScopePlugins, 0)
+	assert.False(t, ok)
+
+	// 'r' matches on both tabs (TabAll)
+	_, ok = r.MatchTab('r', 0, gocui.ModNone, keymap.ScopePlugins, 0)
+	assert.True(t, ok)
+	_, ok = r.MatchTab('r', 0, gocui.ModNone, keymap.ScopePlugins, 1)
+	assert.True(t, ok)
+}
+
+func TestHintsForScopeTab(t *testing.T) {
+	t.Parallel()
+	r := keymap.NewRegistry()
+	r.Register(keymap.ActionDef{
+		Action: keymap.ActionPluginToggleEnabled, Bindings: []keymap.KeyBinding{{Rune: 'e'}},
+		Scope: keymap.ScopePlugins, Tab: 0, HintLabel: "toggle",
+	})
+	r.Register(keymap.ActionDef{
+		Action: keymap.ActionPluginInstall, Bindings: []keymap.KeyBinding{{Rune: 'i'}},
+		Scope: keymap.ScopePlugins, Tab: 1, HintLabel: "install",
+	})
+	r.Register(keymap.ActionDef{
+		Action: keymap.ActionPluginRefresh, Bindings: []keymap.KeyBinding{{Rune: 'r'}},
+		Scope: keymap.ScopePlugins, Tab: keymap.TabAll, HintLabel: "refresh",
+	})
+
+	// Tab 0: toggle + refresh
+	hints0 := r.HintsForScopeTab(keymap.ScopePlugins, 0)
+	require.Len(t, hints0, 2)
+	assert.Equal(t, "toggle", hints0[0].HintLabel)
+	assert.Equal(t, "refresh", hints0[1].HintLabel)
+
+	// Tab 1: install + refresh
+	hints1 := r.HintsForScopeTab(keymap.ScopePlugins, 1)
+	require.Len(t, hints1, 2)
+	assert.Equal(t, "install", hints1[0].HintLabel)
+	assert.Equal(t, "refresh", hints1[1].HintLabel)
 }

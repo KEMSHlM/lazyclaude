@@ -21,13 +21,12 @@ func (s AppState) IsFullScreen() bool {
 type Scope string
 
 const (
-	ScopeGlobal      Scope = "global"
-	ScopeSession     Scope = "session"
-	ScopePlugins     Scope = "plugins"     // tab 0 (Installed)
-	ScopeMarketplace Scope = "marketplace" // tab 1
-	ScopeLog         Scope = "log"
-	ScopePopup       Scope = "popup"
-	ScopeFullScreen  Scope = "fullscreen"
+	ScopeGlobal     Scope = "global"
+	ScopeSession    Scope = "session"
+	ScopePlugins    Scope = "plugins"
+	ScopeLog        Scope = "log"
+	ScopePopup      Scope = "popup"
+	ScopeFullScreen Scope = "fullscreen"
 )
 
 // KeyAction identifies a logical action in the keymap.
@@ -111,11 +110,15 @@ const (
 	ActionForwardUp         KeyAction = "forward_up"
 )
 
+// TabAll means the action is active on all tabs within a panel.
+const TabAll = -1
+
 // ActionDef defines a logical action with its key bindings, scope, and hint.
 type ActionDef struct {
 	Action    KeyAction
 	Bindings  []KeyBinding
 	Scope     Scope
+	Tab       int    // tab index this action is active on; TabAll (-1) = all tabs
 	HintLabel string // empty = do not show in options bar (e.g. navigation keys)
 	HintKey   string // override key display in hint (e.g. "h/l", "1/2/3"); empty = auto from first binding
 }

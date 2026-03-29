@@ -21,11 +21,8 @@ func (p *PluginsPanel) Name() string  { return "plugins" }
 func (p *PluginsPanel) Label() string { return "Plugins" }
 
 func (p *PluginsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
-	scope := keymap.ScopePlugins
-	if actions.ActivePanelTabIndex() == 1 {
-		scope = keymap.ScopeMarketplace
-	}
-	def, ok := p.reg.Match(ev.Rune, ev.Key, ev.Mod, scope)
+	tab := actions.ActivePanelTabIndex()
+	def, ok := p.reg.MatchTab(ev.Rune, ev.Key, ev.Mod, keymap.ScopePlugins, tab)
 	if !ok {
 		return Unhandled
 	}
@@ -52,13 +49,9 @@ func (p *PluginsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult 
 }
 
 // OptionsBarForTab returns the options bar for the given tab.
-// Tab 0 = Installed (ScopePlugins), Tab 1 = Marketplace (ScopeMarketplace).
+// Tab 0 = Installed, Tab 1 = Marketplace.
 func (p *PluginsPanel) OptionsBarForTab(tabIdx int) string {
-	scope := keymap.ScopePlugins
-	if tabIdx == 1 {
-		scope = keymap.ScopeMarketplace
-	}
-	hints := p.reg.HintsForScope(scope)
+	hints := p.reg.HintsForScopeTab(keymap.ScopePlugins, tabIdx)
 	defs := make([]presentation.HintDef, 0, len(hints))
 	for _, d := range hints {
 		defs = append(defs, presentation.HintDef{
