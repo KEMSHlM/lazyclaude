@@ -13,23 +13,19 @@ Wait+Screen /No sessions/
 
 # セッション作成
 Type "n"
-Sleep 5s
+Wait+Screen /app/
 
 # セッション行に移動してフルスクリーン
 Type "j"
-Sleep 1s
 Enter
+Wait+Screen /Sonnet/
+
+# entrypoint が TIOCSTI で bracketed paste を送信
+# Claude Code が [Pasted text #1 +10 lines] を表示するはず
+Wait+Screen /Pasted text/
+
 Sleep 3s
-
-# entrypoint が 15 秒後に bracketed paste を TTY に直接送信
-# ペースト処理後も TUI が応答することを確認
-Wait+Screen /exit/
-
-# フルスクリーン解除
 Ctrl+\
-Sleep 2s
-
-Wait+Screen /quit/
-
+Sleep 1s
 Type "q"
 Sleep 1s

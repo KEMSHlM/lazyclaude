@@ -102,14 +102,22 @@ PASTEEOF
                 echo "paste_special: no tmux client TTY found after 30s" >&2
                 exit 1
             fi
-            # Send bracketed paste markers + content directly to the PTY.
-            # This is the exact path a real Cmd+V takes:
-            # terminal -> tmux -> popup/pane -> tcell EventPaste.
-            {
-                printf '\e[200~'
-                cat /tmp/paste-text.txt
-                printf '\e[201~'
-            } > "$TTY"
+            echo "paste_special: found TTY=$TTY" >> /tmp/lazyclaude/paste-debug.log
+            # Inject bracketed paste via TIOCSTI ioctl on the client TTY.
+            # TIOCSTI pushes bytes into the TTY input queue — identical to
+            # a real terminal paste. tmux reads them and routes to the
+            # active popup (lazyclaude) → tcell EventPaste → gocui.
+            python3 -c "
+import fcntl, termios, os, sys
+payload = b'\x1b[200~' + open('/tmp/paste-text.txt','rb').read() + b'\x1b[201~'
+fd = os.open('$TTY', os.O_RDWR)
+for b in payload:
+    fcntl.ioctl(fd, termios.TIOCSTI, bytes([b]))
+os.close(fd)
+print(f'paste_special: injected {len(payload)} bytes via TIOCSTI')
+" >> /tmp/lazyclaude/paste-debug.log 2>&1
+            RC=$?
+            echo "paste_special: python3 exit=$RC" >> /tmp/lazyclaude/paste-debug.log
         ) &
         ;;
 esac
