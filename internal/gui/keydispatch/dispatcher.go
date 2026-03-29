@@ -29,7 +29,6 @@ func New(pm *keyhandler.PanelManager, reg *keymap.Registry) *Dispatcher {
 
 // Dispatch routes a key event through the priority chain.
 func (d *Dispatcher) Dispatch(ev keyhandler.KeyEvent, actions keyhandler.AppActions) keyhandler.HandlerResult {
-	// DEBUG: trace dispatch
 	// 1. Popup — highest priority, consumes ALL keys
 	if r := d.popup.HandleKey(ev, actions); r == keyhandler.Handled {
 		return keyhandler.Handled

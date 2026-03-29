@@ -2,15 +2,12 @@ package keyhandler
 
 import "github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 
-// Panel represents a focusable area in the TUI.
-// Each panel manages its own key handling and options bar.
-// Panels optionally support tabs (sub-content switching within a panel).
-// Tab state is managed externally by App (panels are stateless).
+// Panel represents a focusable area in the TUI (metadata + tab lifecycle).
+// Key handling is provided separately via PanelWithHandler.
 type Panel interface {
 	Name() string        // gocui view name ("sessions", "logs", "plugins")
 	Label() string       // display label
 	Scope() keymap.Scope // keybinding scope for this panel
-	HandleKey(ev KeyEvent, actions AppActions) HandlerResult
 
 	// OnTabChanged is called when the panel's active tab changes.
 	// Panels that need side effects (e.g. resetting cursors) implement logic here.
@@ -26,24 +23,33 @@ type Panel interface {
 	TabLabels() []string
 }
 
+// PanelWithHandler pairs Panel metadata with a key dispatch function.
+// The HandleKey function accepts AppActions (the composite interface)
+// at the dispatch boundary, while the underlying panel handler depends
+// only on its narrow interface.
+type PanelWithHandler struct {
+	Panel
+	HandleKey func(ev KeyEvent, actions AppActions) HandlerResult
+}
+
 // PanelManager tracks focus across registered panels.
 // Tab/Shift+Tab cycles focusIdx.
 type PanelManager struct {
-	panels   []Panel
+	panels   []PanelWithHandler
 	focusIdx int
 }
 
-// NewPanelManager creates a PanelManager with the given panels.
-func NewPanelManager(panels ...Panel) *PanelManager {
+// NewPanelManager creates a PanelManager with the given panel entries.
+func NewPanelManager(panels ...PanelWithHandler) *PanelManager {
 	return &PanelManager{panels: panels}
 }
 
-// ActivePanel returns the currently focused panel.
-func (pm *PanelManager) ActivePanel() Panel {
+// ActivePanel returns the currently focused panel entry.
+func (pm *PanelManager) ActivePanel() *PanelWithHandler {
 	if len(pm.panels) == 0 {
 		return nil
 	}
-	return pm.panels[pm.focusIdx]
+	return &pm.panels[pm.focusIdx]
 }
 
 // FocusNext advances focus to the next panel (wrapping).
@@ -60,11 +66,6 @@ func (pm *PanelManager) FocusPrev() {
 		return
 	}
 	pm.focusIdx = (pm.focusIdx - 1 + len(pm.panels)) % len(pm.panels)
-}
-
-// Panels returns all registered panels.
-func (pm *PanelManager) Panels() []Panel {
-	return pm.panels
 }
 
 // FocusIdx returns the current focus index.

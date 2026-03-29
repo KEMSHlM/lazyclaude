@@ -16,7 +16,9 @@ func NewPopupHandler(reg *keymap.Registry) *PopupHandler {
 	return &PopupHandler{reg: reg}
 }
 
-func (h *PopupHandler) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
+// HandleKey dispatches popup-scoped key events.
+// Depends only on PopupActions.
+func (h *PopupHandler) HandleKey(ev KeyEvent, actions PopupActions) HandlerResult {
 	if !actions.HasPopup() {
 		return Unhandled
 	}

@@ -13,7 +13,9 @@ func NewFullScreenHandler(reg *keymap.Registry) *FullScreenHandler {
 	return &FullScreenHandler{reg: reg}
 }
 
-func (h *FullScreenHandler) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
+// HandleKey dispatches fullscreen-scoped key events.
+// Depends only on FullScreenActions.
+func (h *FullScreenHandler) HandleKey(ev KeyEvent, actions FullScreenActions) HandlerResult {
 	if !actions.IsFullScreen() {
 		return Unhandled
 	}

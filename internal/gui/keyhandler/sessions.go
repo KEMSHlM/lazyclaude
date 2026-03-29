@@ -10,9 +10,16 @@ type SessionsPanel struct {
 	reg *keymap.Registry
 }
 
-// NewSessionsPanel creates a SessionsPanel with injected registry.
-func NewSessionsPanel(reg *keymap.Registry) *SessionsPanel {
-	return &SessionsPanel{reg: reg}
+// NewSessionsPanel creates a SessionsPanel and returns it wrapped as
+// a PanelWithHandler for use with PanelManager.
+func NewSessionsPanel(reg *keymap.Registry) PanelWithHandler {
+	p := &SessionsPanel{reg: reg}
+	return PanelWithHandler{
+		Panel: p,
+		HandleKey: func(ev KeyEvent, actions AppActions) HandlerResult {
+			return p.HandleKey(ev, actions)
+		},
+	}
 }
 
 func (p *SessionsPanel) Name() string        { return "sessions" }
@@ -21,7 +28,9 @@ func (p *SessionsPanel) Scope() keymap.Scope { return keymap.ScopeSession }
 
 func (p *SessionsPanel) OnTabChanged(_ int, _ AppActions) {} // single-tab: no-op
 
-func (p *SessionsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
+// HandleKey dispatches session-scoped key events.
+// Depends only on SessionActions.
+func (p *SessionsPanel) HandleKey(ev KeyEvent, actions SessionActions) HandlerResult {
 	def, ok := p.reg.Match(ev.Rune, ev.Key, ev.Mod, keymap.ScopeSession)
 	if !ok {
 		return Unhandled
