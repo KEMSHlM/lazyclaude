@@ -15,6 +15,46 @@ type SessionLister interface {
 	Sessions() []SessionInfo
 }
 
+// SessionCreator provides session creation for the /msg/create endpoint.
+type SessionCreator interface {
+	// FindProjectForSession returns the project owning the given session ID.
+	FindProjectForSession(id string) *SessionProjectInfo
+	// CreateWorkerSession creates a git worktree worker session.
+	CreateWorkerSession(ctx context.Context, name, prompt, projectRoot string) (*SessionCreateResult, error)
+	// CreateLocalSession creates a plain session at projectPath.
+	CreateLocalSession(ctx context.Context, name, projectPath string) (*SessionCreateResult, error)
+}
+
+// SessionProjectInfo is the minimal project data needed by the handler.
+type SessionProjectInfo struct {
+	Path string
+}
+
+// SessionCreateResult is the data returned after creating a session.
+type SessionCreateResult struct {
+	ID     string
+	Name   string
+	Role   string
+	Path   string
+	Window string
+}
+
+// MsgCreateResponse is the JSON response for POST /msg/create.
+type MsgCreateResponse struct {
+	Status  string            `json:"status"`
+	Session *MsgCreateSession `json:"session,omitempty"`
+	Error   string            `json:"error,omitempty"`
+}
+
+// MsgCreateSession is the session info returned in a create response.
+type MsgCreateSession struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Role   string `json:"role"`
+	Path   string `json:"path"`
+	Window string `json:"window"`
+}
+
 // SessionInfo is a lightweight session descriptor returned by /msg/sessions.
 type SessionInfo struct {
 	ID     string `json:"id"`
@@ -23,6 +63,102 @@ type SessionInfo struct {
 	Path   string `json:"path"`
 	Window string `json:"window,omitempty"` // tmux window ID (e.g. "@1")
 	Status string `json:"status,omitempty"` // runtime status string (e.g. "Running")
+}
+
+type msgCreateRequest struct {
+	From   string `json:"from"`
+	Name   string `json:"name"`
+	Type   string `json:"type"`   // "worker" or "local"
+	Prompt string `json:"prompt"` // optional
+}
+
+// handleMsgCreate handles POST /msg/create.
+// It creates a new session (worker or local) scoped to the caller's project.
+func (s *Server) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	token := extractAuthToken(r)
+	if subtle.ConstantTimeCompare([]byte(token), []byte(s.config.Token)) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	s.mu.Lock()
+	sc := s.sessionCreator
+	s.mu.Unlock()
+
+	if sc == nil {
+		http.Error(w, "session creator not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var req msgCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	if req.From == "" || req.Name == "" {
+		http.Error(w, "from and name are required", http.StatusBadRequest)
+		return
+	}
+
+	if req.Type != "worker" && req.Type != "local" {
+		http.Error(w, "type must be worker or local", http.StatusBadRequest)
+		return
+	}
+
+	project := sc.FindProjectForSession(req.From)
+	if project == nil {
+		http.Error(w, fmt.Sprintf("session not found: %s", req.From), http.StatusNotFound)
+		return
+	}
+
+	ctx := r.Context()
+	var result *SessionCreateResult
+	var err error
+
+	switch req.Type {
+	case "worker":
+		result, err = sc.CreateWorkerSession(ctx, req.Name, req.Prompt, project.Path)
+	case "local":
+		result, err = sc.CreateLocalSession(ctx, req.Name, project.Path)
+	}
+	if err != nil {
+		s.log.Printf("msg/create: %v", err)
+		http.Error(w, fmt.Sprintf("create session failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// For local sessions, send prompt via tmux if provided.
+	if req.Type == "local" && req.Prompt != "" && result.Window != "" {
+		target := "lazyclaude:" + result.Window
+		if sendErr := s.tmux.SendKeysLiteral(ctx, target, req.Prompt); sendErr != nil {
+			s.log.Printf("msg/create: send prompt to %s: %v", target, sendErr)
+		} else if enterErr := s.tmux.SendKeys(ctx, target, "Enter"); enterErr != nil {
+			s.log.Printf("msg/create: send Enter to %s: %v", target, enterErr)
+		}
+	}
+
+	resp := MsgCreateResponse{
+		Status: "created",
+		Session: &MsgCreateSession{
+			ID:     result.ID,
+			Name:   result.Name,
+			Role:   result.Role,
+			Path:   result.Path,
+			Window: result.Window,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.log.Printf("msg/create: encode: %v", err)
+	}
 }
 
 type msgSendRequest struct {

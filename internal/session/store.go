@@ -300,6 +300,41 @@ func (s *Store) FindByName(name string) *Session {
 	return nil
 }
 
+// FindProjectForSession returns the project that owns the given session ID.
+// Returns nil if the session is not found in any project.
+func (s *Store) FindProjectForSession(id string) *Project {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for i := range s.projects {
+		if s.projects[i].PM != nil && s.projects[i].PM.ID == id {
+			return s.copyProjectLocked(i)
+		}
+		for si := range s.projects[i].Sessions {
+			if s.projects[i].Sessions[si].ID == id {
+				return s.copyProjectLocked(i)
+			}
+		}
+	}
+	return nil
+}
+
+// copyProjectLocked returns a deep copy of the project at index i.
+// Caller must hold s.mu (at least RLock).
+func (s *Store) copyProjectLocked(i int) *Project {
+	p := s.projects[i]
+	if p.PM != nil {
+		pm := *p.PM
+		p.PM = &pm
+	}
+	if len(p.Sessions) > 0 {
+		sessions := make([]Session, len(p.Sessions))
+		copy(sessions, p.Sessions)
+		p.Sessions = sessions
+	}
+	return &p
+}
+
 // FindProjectByPath returns a project by its root path.
 func (s *Store) FindProjectByPath(path string) *Project {
 	s.mu.RLock()

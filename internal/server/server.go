@@ -34,14 +34,15 @@ type Config struct {
 
 // Server is the MCP WebSocket + HTTP server.
 type Server struct {
-	config        Config
-	state         *State
-	handler       *Handler
-	lock          *LockManager
-	tmux          tmux.Client
-	log           *log.Logger
-	notifyBroker  *event.Broker[model.Event]
-	sessionLister SessionLister
+	config         Config
+	state          *State
+	handler        *Handler
+	lock           *LockManager
+	tmux           tmux.Client
+	log            *log.Logger
+	notifyBroker   *event.Broker[model.Event]
+	sessionLister  SessionLister
+	sessionCreator SessionCreator
 
 	listener net.Listener
 	httpSrv  *http.Server
@@ -70,6 +71,7 @@ func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/notify", s.handleNotify)
 	mux.HandleFunc("/msg/send", s.handleMsgSend)
+	mux.HandleFunc("/msg/create", s.handleMsgCreate)
 	mux.HandleFunc("/msg/sessions", s.handleMsgSessions)
 	mux.HandleFunc("/", s.handleWebSocket)
 
@@ -158,6 +160,14 @@ func (s *Server) SetSessionLister(sl SessionLister) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessionLister = sl
+}
+
+// SetSessionCreator sets the provider used by POST /msg/create to spawn sessions.
+// It is safe to call after New() and before the first request.
+func (s *Server) SetSessionCreator(sc SessionCreator) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionCreator = sc
 }
 
 // NotifyBroker returns the event broker that publishes model.Event when a
