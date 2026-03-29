@@ -415,6 +415,7 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 	} else {
 		// No TUI subscriber — daemon mode or TUI not running.
 		// Enqueue to disk for file-based polling.
+		s.log.Printf("notify: no TUI subscriber for window %s tool=%s, enqueueing to disk", window, toolName)
 		if err := notify.Enqueue(s.config.RuntimeDir, n); err != nil {
 			s.log.Printf("notify: write notification: %v", err)
 		}

@@ -191,10 +191,20 @@ func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, tmuxSoc
 	}
 
 	srv := server.New(cfg, tmuxClient, srvLogger)
-	if _, err := srv.Start(context.Background()); err != nil {
+	port, err := srv.Start(context.Background())
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: start in-process MCP server: %v\n", err)
 		return nil
 	}
+
+	// Remove all other lazyclaude lock files so hooks always connect to this
+	// in-process server (which has the notify broker wired to the TUI).
+	// Non-lazyclaude locks (VS Code, JetBrains) are left untouched.
+	lockMgr := server.NewLockManager(paths.IDEDir)
+	if n := lockMgr.CleanAllExcept(port); n > 0 {
+		srvLogger.Printf("cleaned %d other lazyclaude lock(s)", n)
+	}
+
 	return srv
 }
 
