@@ -115,6 +115,9 @@ func newApp(mode AppMode, g *gocui.Gui, enableMouse bool) (*App, error) {
 	app.fullscreen = NewFullScreenState(app.preview)
 	app.initDispatcher()
 
+	g.Highlight = true
+	g.SelFrameColor = gocui.ColorCyan
+
 	g.SetManagerFunc(app.layout)
 	if enableMouse {
 		g.Mouse = true

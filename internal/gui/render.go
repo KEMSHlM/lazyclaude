@@ -56,24 +56,19 @@ func renderTree(v *gocui.View, nodes []TreeNode, cursor int) {
 		return
 	}
 
-	for i, node := range nodes {
-		prefix := "  "
-		if i == cursor {
-			prefix = presentation.FgCyan + presentation.Bold + "> " + presentation.Reset
-		}
-
+	for _, node := range nodes {
 		switch node.Kind {
 		case ProjectNode:
 			expandIcon := presentation.IconProjectCollapsed
 			if node.Project.Expanded {
 				expandIcon = presentation.IconProjectExpanded
 			}
-			fmt.Fprintf(v, "%s%s %s\n", prefix, expandIcon, node.Project.Name)
+			fmt.Fprintf(v, " %s %s\n", expandIcon, node.Project.Name)
 
 		case SessionNode:
 			name := sessionDisplayName(node.Session)
 			icon := sessionStatusIcon(node.Session)
-			fmt.Fprintf(v, "%s  %-18s%s\n", prefix, name, icon)
+			fmt.Fprintf(v, "   %-18s%s\n", name, icon)
 		}
 	}
 
@@ -83,25 +78,17 @@ func renderTree(v *gocui.View, nodes []TreeNode, cursor int) {
 // renderWorktreeChooser writes the worktree selection list to a gocui view.
 func renderWorktreeChooser(v *gocui.View, items []WorktreeInfo, cursor int) {
 	v.Clear()
-	for i, item := range items {
-		prefix := "  "
-		if i == cursor {
-			prefix = presentation.FgCyan + presentation.Bold + "> " + presentation.Reset
-		}
+	for _, item := range items {
 		branch := item.Branch
 		if branch == "" {
 			branch = "detached"
 		}
-		fmt.Fprintf(v, "%s%s %s(%s)\n", prefix,
+		fmt.Fprintf(v, " %s %s (%s)\n",
 			presentation.IconWorktree, item.Name,
 			presentation.Dim+branch+presentation.Reset)
 	}
 	// "New worktree" entry
-	prefix := "  "
-	if cursor == len(items) {
-		prefix = presentation.FgCyan + presentation.Bold + "> " + presentation.Reset
-	}
-	fmt.Fprintf(v, "%s%s+ New worktree%s\n", prefix, presentation.FgGreen, presentation.Reset)
+	fmt.Fprintf(v, " %s+ New worktree%s\n", presentation.FgGreen, presentation.Reset)
 
 	v.SetCursor(0, cursor)
 }
