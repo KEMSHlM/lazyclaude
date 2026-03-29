@@ -93,6 +93,7 @@ func newRootCmd() *cobra.Command {
 			if inProcessSrv != nil {
 				notifyBroker = inProcessSrv.NotifyBroker()
 				inProcessSrv.SetSessionLister(&sessionListerAdapter{mgr: mgr})
+				inProcessSrv.SetSessionCreator(&sessionCreatorAdapter{mgr: mgr})
 				lc.Register("mcp-server", func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					defer cancel()
@@ -252,6 +253,50 @@ func (a *sessionListerAdapter) Sessions() []server.SessionInfo {
 		}
 	}
 	return items
+}
+
+// sessionCreatorAdapter bridges session.Manager to server.SessionCreator.
+type sessionCreatorAdapter struct {
+	mgr *session.Manager
+}
+
+func (a *sessionCreatorAdapter) FindProjectForSession(id string) *server.SessionProjectInfo {
+	p := a.mgr.Store().FindProjectForSession(id)
+	if p == nil {
+		return nil
+	}
+	return &server.SessionProjectInfo{Path: p.Path}
+}
+
+func (a *sessionCreatorAdapter) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot string) (*server.SessionCreateResult, error) {
+	sess, err := a.mgr.CreateWorkerSession(ctx, name, prompt, projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("create worker session: %w", err)
+	}
+	return &server.SessionCreateResult{
+		ID:     sess.ID,
+		Name:   sess.Name,
+		Role:   string(sess.Role),
+		Path:   sess.Path,
+		Window: sess.TmuxWindow,
+	}, nil
+}
+
+// CreateLocalSession creates a plain session at projectPath.
+// Note: name is accepted for interface consistency but mgr.Create generates
+// its own name from the directory path via GenerateName.
+func (a *sessionCreatorAdapter) CreateLocalSession(ctx context.Context, name, projectPath string) (*server.SessionCreateResult, error) {
+	sess, err := a.mgr.Create(ctx, projectPath, "")
+	if err != nil {
+		return nil, fmt.Errorf("create local session: %w", err)
+	}
+	return &server.SessionCreateResult{
+		ID:     sess.ID,
+		Name:   sess.Name,
+		Role:   string(sess.Role),
+		Path:   sess.Path,
+		Window: sess.TmuxWindow,
+	}, nil
 }
 
 // sessionAdapter bridges session.Manager to gui.SessionProvider.

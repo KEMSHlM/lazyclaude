@@ -293,6 +293,64 @@ func TestStore_WorkerRoleRoundTrip(t *testing.T) {
 	assert.Equal(t, session.RoleWorker, all[0].Role)
 }
 
+// --- FindProjectForSession tests ---
+
+func TestStore_FindProjectForSession_RegularSession(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+	s.Add(newTestSession("id-1", "my-app", "/project/a"))
+	s.Add(newTestSession("id-2", "my-lib", "/project/b"))
+
+	p := s.FindProjectForSession("id-1")
+	require.NotNil(t, p)
+	assert.Equal(t, "/project/a", p.Path)
+}
+
+func TestStore_FindProjectForSession_PMSession(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+	pmSess := newTestSession("pm-id", "pm", "/project")
+	pmSess.Role = session.RolePM
+	s.Add(pmSess)
+
+	p := s.FindProjectForSession("pm-id")
+	require.NotNil(t, p)
+	assert.Equal(t, "/project", p.Path)
+}
+
+func TestStore_FindProjectForSession_NotFound(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+	s.Add(newTestSession("id-1", "my-app", "/project"))
+
+	p := s.FindProjectForSession("nonexistent")
+	assert.Nil(t, p)
+}
+
+func TestStore_FindProjectForSession_MultipleProjects(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+	s.Add(newTestSession("id-a", "app-a", "/project/a"))
+	s.Add(newTestSession("id-b", "app-b", "/project/b"))
+
+	p := s.FindProjectForSession("id-b")
+	require.NotNil(t, p)
+	assert.Equal(t, "/project/b", p.Path)
+}
+
+func TestStore_FindProjectForSession_WorkerInWorktree(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+	// Worktree path → InferProjectRoot maps to /project
+	workerSess := newTestSession("w-id", "feat-x", "/project/.claude/worktrees/feat-x")
+	workerSess.Role = session.RoleWorker
+	s.Add(workerSess)
+
+	p := s.FindProjectForSession("w-id")
+	require.NotNil(t, p)
+	assert.Equal(t, "/project", p.Path)
+}
+
 func TestStore_SyncWithTmux_Detached(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
