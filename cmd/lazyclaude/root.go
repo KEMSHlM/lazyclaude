@@ -282,13 +282,18 @@ func (a *sessionCreatorAdapter) CreateWorkerSession(ctx context.Context, name, p
 	}, nil
 }
 
-// CreateLocalSession creates a plain session at projectPath.
-// Note: name is accepted for interface consistency but mgr.Create generates
-// its own name from the directory path via GenerateName.
+// CreateLocalSession creates a plain session at projectPath and renames it
+// to the caller-specified name.
 func (a *sessionCreatorAdapter) CreateLocalSession(ctx context.Context, name, projectPath string) (*server.SessionCreateResult, error) {
 	sess, err := a.mgr.Create(ctx, projectPath, "")
 	if err != nil {
 		return nil, fmt.Errorf("create local session: %w", err)
+	}
+	if name != "" && sess.Name != name {
+		if renameErr := a.mgr.Rename(sess.ID, name); renameErr != nil {
+			return nil, fmt.Errorf("rename local session: %w", renameErr)
+		}
+		sess.Name = name
 	}
 	return &server.SessionCreateResult{
 		ID:     sess.ID,

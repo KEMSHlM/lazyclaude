@@ -241,13 +241,13 @@ func (s *Server) serveConn(ctx context.Context, conn *websocket.Conn, connID str
 }
 
 type notifyRequest struct {
-	Type      string          `json:"type,omitempty"` // "tool_info" or "" (permission_prompt)
+	Type      string          `json:"type,omitempty"`       // "tool_info" or "" (permission_prompt)
 	PID       int             `json:"pid"`
 	ToolName  string          `json:"tool_name,omitempty"`
 	ToolInput json.RawMessage `json:"tool_input,omitempty"` // object from Claude Code hooks
 	Input     string          `json:"input,omitempty"`      // string (backward compat with curl tests)
 	CWD       string          `json:"cwd,omitempty"`
-	Message   string          `json:"message,omitempty"` // from Notification hook
+	Message   string          `json:"message,omitempty"`    // from Notification hook
 }
 
 // toolInputString returns tool_input as a string, handling both object and string forms.
