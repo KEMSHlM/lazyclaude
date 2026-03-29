@@ -3,18 +3,26 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
+	"time"
 )
+
+const lockDialTimeout = 500 * time.Millisecond
 
 // LockFile represents the contents of an IDE lock file.
 type LockFile struct {
 	PID       int    `json:"pid"`
 	AuthToken string `json:"authToken"`
 	Transport string `json:"transport"`
+	App       string `json:"app,omitempty"` // "lazyclaude" for locks created by this binary
 }
+
+const lockApp = "lazyclaude"
 
 // LockManager handles IDE lock file lifecycle.
 type LockManager struct {
@@ -37,6 +45,7 @@ func (m *LockManager) Write(port int, token string) error {
 		PID:       os.Getpid(),
 		AuthToken: token,
 		Transport: "ws",
+		App:       lockApp,
 	}
 	data, err := json.Marshal(lock)
 	if err != nil {
@@ -71,8 +80,9 @@ func (m *LockManager) Exists(port int) bool {
 	return err == nil
 }
 
-// CleanStale removes lock files whose PID is no longer alive.
-// Returns the number of removed files.
+// CleanStale removes lock files whose server is no longer reachable.
+// A lock is considered stale if either the PID is dead OR the port is
+// not accepting TCP connections. Returns the number of removed files.
 func (m *LockManager) CleanStale() int {
 	entries, err := os.ReadDir(m.ideDir)
 	if err != nil {
@@ -92,22 +102,76 @@ func (m *LockManager) CleanStale() int {
 		if err := json.Unmarshal(data, &lock); err != nil {
 			continue
 		}
-		if lock.PID <= 0 {
+
+		// Extract port from filename (e.g. "51623.lock" → 51623).
+		port, portErr := strconv.Atoi(strings.TrimSuffix(e.Name(), ".lock"))
+
+		// Check 1: PID must be alive.
+		pidAlive := false
+		if lock.PID > 0 {
+			if proc, err := os.FindProcess(lock.PID); err == nil {
+				pidAlive = proc.Signal(syscall.Signal(0)) == nil
+			}
+		}
+
+		// Check 2: TCP port must be reachable.
+		tcpAlive := false
+		if portErr == nil && port > 0 {
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), lockDialTimeout)
+			if err == nil {
+				conn.Close()
+				tcpAlive = true
+			}
+		}
+
+		// Remove if either check fails.
+		if !pidAlive || !tcpAlive {
 			os.Remove(path)
 			removed++
+		}
+	}
+	return removed
+}
+
+// CleanAllExcept removes all lazyclaude lock files except the one for exceptPort.
+// Non-lazyclaude locks (e.g. VS Code, JetBrains) are left untouched.
+// Returns the number of removed files.
+func (m *LockManager) CleanAllExcept(exceptPort int) int {
+	entries, err := os.ReadDir(m.ideDir)
+	if err != nil {
+		return 0
+	}
+	removed := 0
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".lock" {
 			continue
 		}
-		proc, err := os.FindProcess(lock.PID)
-		if err != nil {
-			os.Remove(path)
-			removed++
+		port, err := strconv.Atoi(strings.TrimSuffix(e.Name(), ".lock"))
+		if err != nil || port == exceptPort {
 			continue
 		}
-		// Signal 0 checks if process exists without sending a signal.
-		if err := proc.Signal(syscall.Signal(0)); err != nil {
-			os.Remove(path)
-			removed++
+		path := filepath.Join(m.ideDir, e.Name())
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			continue
 		}
+		var lock LockFile
+		if json.Unmarshal(data, &lock) != nil {
+			continue
+		}
+		// Only remove locks created by lazyclaude.
+		if lock.App != lockApp {
+			continue
+		}
+		// Send SIGINT so the server can clean up gracefully.
+		// Skip our own PID to avoid killing ourselves.
+		if lock.PID > 0 && lock.PID != os.Getpid() {
+			if proc, findErr := os.FindProcess(lock.PID); findErr == nil {
+				_ = proc.Signal(os.Interrupt)
+			}
+		}
+		os.Remove(path)
+		removed++
 	}
 	return removed
 }
