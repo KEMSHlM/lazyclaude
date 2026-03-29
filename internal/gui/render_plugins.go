@@ -11,7 +11,8 @@ import (
 // renderPluginPanel renders the plugins list view with tab header.
 func (a *App) renderPluginPanel(v *gocui.View, maxWidth int) {
 	// Use gocui native Tabs API for consistent tab rendering.
-	v.Title = " Plugins "
+	// TitlePrefix renders before tabs: "╭─ Plugins ─ Installed - Marketplace ──╮"
+	v.TitlePrefix = " Plugins "
 	v.Tabs = []string{"Installed", "Marketplace"}
 	v.TabIndex = a.pluginState.tabIdx
 	v.SelFgColor = gocui.ColorWhite
