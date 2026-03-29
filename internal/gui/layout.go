@@ -146,14 +146,11 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	}
 	setRoundedFrame(v)
 	v.Title = " Sessions "
-	v.Highlight = focusedName == "sessions"
-	v.SelBgColor = gocui.ColorBlue
+	v.Highlight = true
+	v.SelBgColor = gocui.Get256Color(24)
 	v.SelFgColor = gocui.ColorWhite
-	if focusedName == "sessions" {
-		v.FrameColor = gocui.ColorCyan
-	} else {
-		v.FrameColor = gocui.ColorDefault
-	}
+	v.HighlightInactive = focusedName != "sessions"
+	v.InactiveViewSelBgColor = gocui.Get256Color(238)
 	v.Clear()
 	var nodes []TreeNode
 	if a.sessions != nil {
@@ -175,11 +172,11 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 		return err
 	}
 	setRoundedFrame(vp)
-	if focusedName == "plugins" {
-		vp.FrameColor = gocui.ColorCyan
-	} else {
-		vp.FrameColor = gocui.ColorDefault
-	}
+	vp.Highlight = true
+	vp.SelBgColor = gocui.Get256Color(24)
+	vp.SelFgColor = gocui.ColorWhite
+	vp.HighlightInactive = focusedName != "plugins"
+	vp.InactiveViewSelBgColor = gocui.Get256Color(238)
 	vp.Clear()
 	a.renderPluginPanel(vp, l.Plugins.Width()-2)
 
@@ -191,11 +188,6 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	setRoundedFrame(v2)
 	v2.Title = " Logs "
 	v2.Wrap = true
-	if focusedName == "logs" {
-		v2.FrameColor = gocui.ColorCyan
-	} else {
-		v2.FrameColor = gocui.ColorDefault
-	}
 	v2.Clear()
 	renderServerLog(v2, a.logs, focusedName == "logs")
 
@@ -442,6 +434,7 @@ func (a *App) showRenameInput(g *gocui.Gui, currentName string) bool {
 	if err != nil && !isUnknownView(err) {
 		return false
 	}
+	setRoundedFrame(v)
 	v.Title = " Rename "
 	v.Editable = true
 	v.Editor = gocui.DefaultEditor
@@ -583,6 +576,8 @@ func (a *App) showWorktreeChooser(g *gocui.Gui, items []WorktreeInfo) bool {
 	v.Title = " Select Worktree "
 	v.Editable = false
 	v.Highlight = true
+	v.SelBgColor = gocui.Get256Color(24)
+	v.SelFgColor = gocui.ColorWhite
 	setRoundedFrame(v)
 	renderWorktreeChooser(v, items, a.dialog.WorktreeCursor)
 

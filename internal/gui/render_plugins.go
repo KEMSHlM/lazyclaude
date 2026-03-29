@@ -11,17 +11,13 @@ import (
 
 // renderPluginPanel renders the plugins list view with tab header.
 func (a *App) renderPluginPanel(v *gocui.View, maxWidth int) {
-	// Tab header in title (plain text — gocui Title does not support ANSI)
-	// Tab header with project context
-	projectLabel := ""
+	// Use gocui native Tabs API for consistent tab rendering.
 	if a.pluginState.projectDir != "" {
-		projectLabel = " (" + filepath.Base(a.pluginState.projectDir) + ")"
+		v.Title = " " + filepath.Base(a.pluginState.projectDir) + " "
 	}
-	if a.pluginState.tabIdx == 0 {
-		v.Title = " [Installed] | Marketplace" + projectLabel + " "
-	} else {
-		v.Title = " Installed | [Marketplace]" + projectLabel + " "
-	}
+	v.Tabs = []string{"Installed", "Marketplace"}
+	v.TabIndex = a.pluginState.tabIdx
+	v.SelFgColor = gocui.ColorWhite
 
 	if a.pluginState.loading {
 		fmt.Fprintln(v, "")
@@ -50,7 +46,7 @@ func (a *App) renderPluginPanel(v *gocui.View, maxWidth int) {
 	}
 }
 
-func (a *App) renderInstalledList(v *gocui.View, maxWidth int, focused bool) {
+func (a *App) renderInstalledList(v *gocui.View, maxWidth int, _ bool) {
 	installed := a.plugins.Installed()
 	if len(installed) == 0 {
 		fmt.Fprintln(v, "")
@@ -58,18 +54,15 @@ func (a *App) renderInstalledList(v *gocui.View, maxWidth int, focused bool) {
 		return
 	}
 
-	cursor := a.pluginState.installedCursor
-	for i, p := range installed {
+	for _, p := range installed {
 		line := presentation.FormatInstalledLine(p.ID, p.Version, p.Enabled, maxWidth)
-		if focused && i == cursor {
-			fmt.Fprintln(v, presentation.BgBlue+line+presentation.Reset)
-		} else {
-			fmt.Fprintln(v, line)
-		}
+		fmt.Fprintln(v, line)
 	}
+
+	v.SetCursor(0, a.pluginState.installedCursor)
 }
 
-func (a *App) renderAvailableList(v *gocui.View, maxWidth int, focused bool) {
+func (a *App) renderAvailableList(v *gocui.View, maxWidth int, _ bool) {
 	available := a.plugins.Available()
 	if len(available) == 0 {
 		fmt.Fprintln(v, "")
@@ -78,16 +71,13 @@ func (a *App) renderAvailableList(v *gocui.View, maxWidth int, focused bool) {
 	}
 
 	installedSet := a.buildInstalledSet()
-	cursor := a.pluginState.marketCursor
-	for i, p := range available {
+	for _, p := range available {
 		_, isInstalled := installedSet[p.PluginID]
 		line := presentation.FormatAvailableLine(p.Name, p.Description, p.InstallCount, isInstalled, maxWidth)
-		if focused && i == cursor {
-			fmt.Fprintln(v, presentation.BgBlue+line+presentation.Reset)
-		} else {
-			fmt.Fprintln(v, line)
-		}
+		fmt.Fprintln(v, line)
 	}
+
+	v.SetCursor(0, a.pluginState.marketCursor)
 }
 
 // renderPluginPreview renders the right panel when plugins panel is focused.
