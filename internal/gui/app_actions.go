@@ -195,19 +195,22 @@ func (a *App) currentProjectRoot() string {
 
 // --- Session operations ---
 
-func (a *App) CreateSession() {
+func (a *App) CreateSession()      { a.createSession(a.currentProjectRoot()) }
+func (a *App) CreateSessionAtCWD() { a.createSession(".") }
+
+// createSession is the shared implementation for CreateSession and CreateSessionAtCWD.
+// localPath is the fallback directory for non-SSH sessions.
+func (a *App) createSession(localPath string) {
 	if a.sessions == nil {
 		return
 	}
 	host := DetectSSHHost()
-	var path string
+	path := localPath
 	if host != "" {
 		path = "."
 		if rp := DetectRemotePath(); rp != "" {
 			path = rp
 		}
-	} else {
-		path = a.currentProjectRoot()
 	}
 	if err := a.sessions.Create(path, host); err != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
@@ -218,30 +221,6 @@ func (a *App) CreateSession() {
 	}
 	a.gui.Update(func(g *gocui.Gui) error {
 		a.setStatus(g, "Session created")
-		return nil
-	})
-}
-
-func (a *App) CreateSessionAtCWD() {
-	if a.sessions == nil {
-		return
-	}
-	host := DetectSSHHost()
-	path := "."
-	if host != "" {
-		if rp := DetectRemotePath(); rp != "" {
-			path = rp
-		}
-	}
-	if err := a.sessions.Create(path, host); err != nil {
-		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Error: %v", err))
-			return nil
-		})
-		return
-	}
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.setStatus(g, "Session created (CWD)")
 		return nil
 	})
 }
