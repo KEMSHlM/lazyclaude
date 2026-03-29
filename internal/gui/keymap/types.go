@@ -109,6 +109,11 @@ const (
 	ActionPopupScrollUp  KeyAction = "popup_scroll_up"
 )
 
+// --- Help actions ---
+const (
+	ActionShowKeybindHelp KeyAction = "show_keybind_help"
+)
+
 // --- FullScreen actions ---
 const (
 	ActionExitFull          KeyAction = "exit_fullscreen"
@@ -123,12 +128,14 @@ const TabAll = -1
 
 // ActionDef defines a logical action with its key bindings, scope, and hint.
 type ActionDef struct {
-	Action    KeyAction
-	Bindings  []KeyBinding
-	Scope     Scope
-	Tab       int    // tab index this action is active on; TabAll (-1) = all tabs
-	HintLabel string // empty = do not show in options bar (e.g. navigation keys)
-	HintKey   string // override key display in hint (e.g. "h/l", "1/2/3"); empty = auto from first binding
+	Action      KeyAction
+	Bindings    []KeyBinding
+	Scope       Scope
+	Tab         int    // tab index this action is active on; TabAll (-1) = all tabs
+	HintLabel   string // empty = do not show in options bar (e.g. navigation keys)
+	HintKey     string // override key display in hint (e.g. "h/l", "1/2/3"); empty = auto from first binding
+	Description string // one-line description shown in keybind help
+	DocSection  string // section anchor in keybinds.md (e.g. "new_session"); empty = no detailed doc
 }
 
 // KeyBinding maps a physical key to an action.

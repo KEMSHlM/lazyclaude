@@ -223,6 +223,20 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 		fmt.Fprint(v4, optionsText)
 	}
 
+	// Keybind help overlay (rendered before focus logic so views exist).
+	if a.dialog.Kind == DialogKeybindHelp {
+		if err := a.layoutKeybindHelp(g, maxX, maxY); err != nil {
+			return err
+		}
+	} else {
+		// Clean up help views when dialog is not active.
+		g.DeleteView(helpInputView)
+		g.DeleteView(helpListView)
+		g.DeleteView(helpPreviewView)
+		g.DeleteView(helpHintView)
+		g.DeleteView(helpBorderView)
+	}
+
 	// Focus priority: popup > dialog > panel.
 	// When popup is visible, layoutToolPopup handles focus.
 	// When dialog is active (no popup), restore focus to the dialog view.

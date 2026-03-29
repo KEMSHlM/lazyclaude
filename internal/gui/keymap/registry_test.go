@@ -263,6 +263,54 @@ func TestMatchTab_FiltersCorrectly(t *testing.T) {
 	assert.True(t, ok)
 }
 
+func TestBindingsForScopeTab(t *testing.T) {
+	t.Parallel()
+	r := keymap.NewRegistry()
+	r.Register(keymap.ActionDef{
+		Action: keymap.ActionPluginToggleEnabled, Bindings: []keymap.KeyBinding{{Rune: 'e'}},
+		Scope: keymap.ScopePlugins, Tab: 0, HintLabel: "toggle",
+		Description: "Toggle plugin enabled",
+	})
+	r.Register(keymap.ActionDef{
+		Action: keymap.ActionPluginInstall, Bindings: []keymap.KeyBinding{{Rune: 'i'}},
+		Scope: keymap.ScopePlugins, Tab: 1, HintLabel: "install",
+		Description: "Install plugin",
+	})
+	r.Register(keymap.ActionDef{
+		Action: keymap.ActionPluginRefresh, Bindings: []keymap.KeyBinding{{Rune: 'r'}},
+		Scope: keymap.ScopePlugins, Tab: keymap.TabAll, HintLabel: "refresh",
+		Description: "Refresh plugin list",
+	})
+	r.Register(keymap.ActionDef{
+		Action: keymap.ActionPluginCursorDown, Bindings: []keymap.KeyBinding{{Rune: 'j'}},
+		Scope: keymap.ScopePlugins, Tab: 0,
+		Description: "Move cursor down",
+	})
+
+	// Tab 0: toggle + refresh + cursor (includes no-hint items)
+	defs0 := r.BindingsForScopeTab(keymap.ScopePlugins, 0)
+	require.Len(t, defs0, 3)
+
+	// Tab 1: install + refresh
+	defs1 := r.BindingsForScopeTab(keymap.ScopePlugins, 1)
+	require.Len(t, defs1, 2)
+
+	// Tab 99: only TabAll items
+	defs99 := r.BindingsForScopeTab(keymap.ScopePlugins, 99)
+	require.Len(t, defs99, 1)
+	assert.Equal(t, keymap.ActionPluginRefresh, defs99[0].Action)
+}
+
+func TestActionDef_Description(t *testing.T) {
+	t.Parallel()
+	r := keymap.Default()
+	defs := r.AllActions()
+
+	for _, d := range defs {
+		assert.NotEmpty(t, d.Description, "action %s should have a Description", d.Action)
+	}
+}
+
 func TestHintsForScopeTab(t *testing.T) {
 	t.Parallel()
 	r := keymap.NewRegistry()
