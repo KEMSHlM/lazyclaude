@@ -2,7 +2,6 @@ package gui
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
@@ -12,11 +11,7 @@ import (
 // renderPluginPanel renders the plugins list view with tab header.
 func (a *App) renderPluginPanel(v *gocui.View, maxWidth int) {
 	// Use gocui native Tabs API for consistent tab rendering.
-	if a.pluginState.projectDir != "" {
-		v.Title = " Plugins (" + filepath.Base(a.pluginState.projectDir) + ") "
-	} else {
-		v.Title = " Plugins "
-	}
+	v.Title = " Plugins "
 	v.Tabs = []string{"Installed", "Marketplace"}
 	v.TabIndex = a.pluginState.tabIdx
 	v.SelFgColor = gocui.ColorWhite
