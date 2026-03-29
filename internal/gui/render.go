@@ -208,17 +208,21 @@ func (a *App) renderServerLog(v *gocui.View, logs *LogsState, focused bool) {
 	}
 }
 
-// scrollToCursor sets the cursor position and adjusts the scroll origin
-// so the cursor stays within the visible viewport.
+// scrollToCursor adjusts the scroll origin so the cursor stays within
+// the visible viewport, then sets the cursor relative to the origin.
+// gocui's SetCursor uses coordinates relative to origin, so the cursor
+// must be set after the origin is finalised.
 func scrollToCursor(v *gocui.View, cursorY int) {
-	v.SetCursor(0, cursorY)
 	_, oy := v.Origin()
 	h := v.InnerHeight()
 	if cursorY < oy {
-		v.SetOrigin(0, cursorY)
+		oy = cursorY
+		v.SetOrigin(0, oy)
 	} else if cursorY >= oy+h {
-		v.SetOrigin(0, cursorY-h+1)
+		oy = cursorY - h + 1
+		v.SetOrigin(0, oy)
 	}
+	v.SetCursor(0, cursorY-oy)
 }
 
 // renderToolPopup writes a tool popup to a view.
