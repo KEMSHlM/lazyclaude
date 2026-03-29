@@ -77,3 +77,4 @@ func (m *mockActions) MCPCursorDown()                    { m.record("MCPCursorDo
 func (m *mockActions) MCPCursorUp()                      { m.record("MCPCursorUp") }
 func (m *mockActions) MCPToggleDenied()                  { m.record("MCPToggleDenied") }
 func (m *mockActions) MCPRefresh()                       { m.record("MCPRefresh") }
+func (m *mockActions) ShowKeybindHelp()                   { m.record("ShowKeybindHelp") }

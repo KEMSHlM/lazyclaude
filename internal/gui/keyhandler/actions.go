@@ -78,6 +78,9 @@ type AppActions interface {
 	MCPToggleDenied()
 	MCPRefresh()
 
+	// Help
+	ShowKeybindHelp()
+
 	// Application
 	Quit()
 }

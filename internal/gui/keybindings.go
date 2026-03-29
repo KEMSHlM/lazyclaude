@@ -39,7 +39,7 @@ func (a *App) dispatchKey(key gocui.Key) func(*gocui.Gui, *gocui.View) error {
 // setupGlobalKeybindings registers physical keys and delegates to the Dispatcher.
 func (a *App) setupGlobalKeybindings() error {
 	// 1. Rune keys dispatched through the chain
-	runes := []rune{'h', 'j', 'k', 'l', 'n', 'N', 'd', 'e', 'i', 'r', 'u', 'R', 'D', 'P', 'q', 'p', 'y', 'a', 'Y', 'g', 'G', 'v', 'w', 'W', '[', ']', '1', '2', '3'}
+	runes := []rune{'h', 'j', 'k', 'l', 'n', 'N', 'd', 'e', 'i', 'r', 'u', 'R', 'D', 'P', 'q', 'p', 'y', 'a', 'Y', 'g', 'G', 'v', 'w', 'W', '[', ']', '1', '2', '3', '?'}
 	for _, ch := range runes {
 		if err := a.gui.SetKeybinding("", ch, gocui.ModNone, a.dispatchRune(ch)); err != nil {
 			return err
@@ -314,6 +314,52 @@ func (a *App) setupGlobalKeybindings() error {
 		v.RenderTextArea()
 		return nil
 	}); err != nil {
+		return err
+	}
+
+	// 9. Keybind help overlay bindings
+	// Esc: close help
+	for _, viewName := range []string{helpInputView, helpListView} {
+		if err := a.gui.SetKeybinding(viewName, gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+			a.closeKeybindHelp(g)
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+
+	// j/k and arrow keys: cursor movement in help list (from input view)
+	helpCursorMove := func(delta int) func(*gocui.Gui, *gocui.View) error {
+		return func(g *gocui.Gui, v *gocui.View) error {
+			if a.dialog.Kind != DialogKeybindHelp {
+				return nil
+			}
+			a.dialog.HelpCursor += delta
+			if a.dialog.HelpCursor < 0 {
+				a.dialog.HelpCursor = 0
+			}
+			if a.dialog.HelpCursor >= len(a.dialog.HelpItems) {
+				a.dialog.HelpCursor = len(a.dialog.HelpItems) - 1
+			}
+			if a.dialog.HelpCursor < 0 {
+				a.dialog.HelpCursor = 0
+			}
+			a.dialog.HelpScrollY = 0
+			return nil
+		}
+	}
+
+	// Ctrl+J / Ctrl+K for list navigation from input field (j/k goes to editor)
+	if err := a.gui.SetKeybinding(helpInputView, gocui.KeyCtrlJ, gocui.ModNone, helpCursorMove(1)); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(helpInputView, gocui.KeyCtrlK, gocui.ModNone, helpCursorMove(-1)); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(helpInputView, gocui.KeyArrowDown, gocui.ModNone, helpCursorMove(1)); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(helpInputView, gocui.KeyArrowUp, gocui.ModNone, helpCursorMove(-1)); err != nil {
 		return err
 	}
 

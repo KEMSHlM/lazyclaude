@@ -1,5 +1,7 @@
 package gui
 
+import "github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+
 // DialogKind identifies which input dialog is currently active.
 type DialogKind int
 
@@ -9,6 +11,7 @@ const (
 	DialogWorktree                         // worktree-branch + worktree-prompt (new)
 	DialogWorktreeChooser                  // worktree-chooser (select existing)
 	DialogWorktreeResume                   // worktree-resume-prompt (prompt only for existing)
+	DialogKeybindHelp                      // keybind-help overlay (Telescope style)
 )
 
 // DialogState groups all input dialog state into a single struct,
@@ -20,6 +23,13 @@ type DialogState struct {
 	WorktreeItems  []WorktreeInfo // items in worktree chooser
 	WorktreeCursor int            // selected index in chooser (len(items) = "New")
 	SelectedPath   string         // path of chosen existing worktree
+
+	// Keybind help state
+	HelpItems    []keymap.ActionDef // filtered list of actions
+	HelpAllItems []keymap.ActionDef // unfiltered source
+	HelpCursor   int                // selected index in filtered list
+	HelpFilter   string             // current fzf query
+	HelpScrollY  int                // doc preview scroll offset
 }
 
 // HasActiveDialog returns true if any input dialog is open.
@@ -48,6 +58,8 @@ func (a *App) dialogFocusView() string {
 		return "worktree-chooser"
 	case DialogWorktreeResume:
 		return "worktree-resume-prompt"
+	case DialogKeybindHelp:
+		return "keybind-help-input"
 	default:
 		return ""
 	}

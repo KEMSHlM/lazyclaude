@@ -7,6 +7,7 @@ import (
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 	"github.com/KEMSHlM/lazyclaude/internal/session"
 	"github.com/jesseduffield/gocui"
 )
@@ -712,6 +713,40 @@ func (a *App) mcpItemCount() int {
 		return 0
 	}
 	return len(a.mcpServers.Servers())
+}
+
+// --- Help ---
+
+func (a *App) ShowKeybindHelp() {
+	if a.HasActiveDialog() || a.fullscreen.IsActive() {
+		return
+	}
+
+	scope := panelNameToScope(a.panelManager.ActivePanel().Name())
+	tab := a.ActivePanelTabIndex()
+
+	items := a.keyRegistry.BindingsForScopeTab(scope, tab)
+	items = append(items, a.keyRegistry.BindingsForScope(keymap.ScopeGlobal)...)
+
+	a.dialog.Kind = DialogKeybindHelp
+	a.dialog.HelpAllItems = items
+	a.dialog.HelpItems = items
+	a.dialog.HelpCursor = 0
+	a.dialog.HelpFilter = ""
+	a.dialog.HelpScrollY = 0
+}
+
+func panelNameToScope(name string) keymap.Scope {
+	switch name {
+	case "sessions":
+		return keymap.ScopeSession
+	case "plugins":
+		return keymap.ScopePlugins
+	case "logs":
+		return keymap.ScopeLog
+	default:
+		return keymap.ScopeGlobal
+	}
 }
 
 // --- Application ---

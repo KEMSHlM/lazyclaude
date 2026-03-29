@@ -53,6 +53,8 @@ func (h *GlobalHandler) HandleKey(ev KeyEvent, actions AppActions) HandlerResult
 		actions.PanelNextTab()
 	case keymap.ActionPanelPrevTab:
 		actions.PanelPrevTab()
+	case keymap.ActionShowKeybindHelp:
+		actions.ShowKeybindHelp()
 	default:
 		return Unhandled
 	}
