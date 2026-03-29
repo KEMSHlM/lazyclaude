@@ -30,6 +30,7 @@ func (m *mockActions) Mode() int         { return m.mode }
 func (m *mockActions) MoveCursorDown()                  { m.record("MoveCursorDown") }
 func (m *mockActions) MoveCursorUp()                    { m.record("MoveCursorUp") }
 func (m *mockActions) CreateSession()                   { m.record("CreateSession") }
+func (m *mockActions) CreateSessionAtCWD()              { m.record("CreateSessionAtCWD") }
 func (m *mockActions) DeleteSession()                   { m.record("DeleteSession") }
 func (m *mockActions) AttachSession()                   { m.record("AttachSession") }
 func (m *mockActions) LaunchLazygit()                   { m.record("LaunchLazygit") }

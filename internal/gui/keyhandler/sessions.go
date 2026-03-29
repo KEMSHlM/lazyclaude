@@ -28,6 +28,9 @@ func (p *SessionsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult
 	case ev.Rune == 'n':
 		actions.CreateSession()
 		return Handled
+	case ev.Rune == 'N':
+		actions.CreateSessionAtCWD()
+		return Handled
 	case ev.Rune == 'd':
 		actions.DeleteSession()
 		return Handled
@@ -72,6 +75,7 @@ func (p *SessionsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult
 func (p *SessionsPanel) OptionsBarForTab(_ int) string {
 	return " " +
 		presentation.StyledKey("n", "new") + "  " +
+		presentation.StyledKey("N", "new[cwd]") + "  " +
 		presentation.StyledKey("d", "del") + "  " +
 		presentation.StyledKey("enter", "full") + "  " +
 		presentation.StyledKey("h/l", "fold") + "  " +

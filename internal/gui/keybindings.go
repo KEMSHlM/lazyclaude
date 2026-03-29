@@ -39,7 +39,7 @@ func (a *App) dispatchKey(key gocui.Key) func(*gocui.Gui, *gocui.View) error {
 // setupGlobalKeybindings registers physical keys and delegates to the Dispatcher.
 func (a *App) setupGlobalKeybindings() error {
 	// 1. Rune keys dispatched through the chain
-	runes := []rune{'h', 'j', 'k', 'l', 'n', 'd', 'e', 'i', 'r', 'u', 'R', 'D', 'P', 'q', 'p', 'y', 'a', 'Y', 'g', 'G', 'v', 'w', 'W', '[', ']', '1', '2', '3'}
+	runes := []rune{'h', 'j', 'k', 'l', 'n', 'N', 'd', 'e', 'i', 'r', 'u', 'R', 'D', 'P', 'q', 'p', 'y', 'a', 'Y', 'g', 'G', 'v', 'w', 'W', '[', ']', '1', '2', '3'}
 	for _, ch := range runes {
 		if err := a.gui.SetKeybinding("", ch, gocui.ModNone, a.dispatchRune(ch)); err != nil {
 			return err
@@ -146,15 +146,7 @@ func (a *App) setupGlobalKeybindings() error {
 			if a.sessions == nil {
 				return
 			}
-			abs, err := filepath.Abs(".")
-			if err != nil {
-				a.gui.Update(func(g *gocui.Gui) error {
-					a.setStatus(g, fmt.Sprintf("Error: %v", err))
-					return nil
-				})
-				return
-			}
-			projectRoot := session.InferProjectRoot(abs)
+			projectRoot := a.currentProjectRoot()
 			if err := a.sessions.CreateWorktree(branchName, userPrompt, projectRoot); err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
 					a.setStatus(g, fmt.Sprintf("Error: %v", err))
@@ -291,15 +283,7 @@ func (a *App) setupGlobalKeybindings() error {
 			if a.sessions == nil {
 				return
 			}
-			abs, err := filepath.Abs(".")
-			if err != nil {
-				a.gui.Update(func(g *gocui.Gui) error {
-					a.setStatus(g, fmt.Sprintf("Error: %v", err))
-					return nil
-				})
-				return
-			}
-			projectRoot := session.InferProjectRoot(abs)
+			projectRoot := a.currentProjectRoot()
 			if err := a.sessions.ResumeWorktree(wtPath, userPrompt, projectRoot); err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
 					a.setStatus(g, fmt.Sprintf("Error: %v", err))
