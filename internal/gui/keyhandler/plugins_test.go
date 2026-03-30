@@ -10,7 +10,8 @@ import (
 
 func TestPluginsPanel_MCPTab_Navigation(t *testing.T) {
 	reg := keymap.Default()
-	p := keyhandler.NewPluginsPanel(reg)
+	entry := keyhandler.NewPluginsPanel(reg)
+	p := entry.Panel.(*keyhandler.PluginsPanel)
 	tests := []struct {
 		ev   keyhandler.KeyEvent
 		want string
@@ -21,7 +22,7 @@ func TestPluginsPanel_MCPTab_Navigation(t *testing.T) {
 		{keyhandler.KeyEvent{Key: gocui.KeyArrowUp}, "MCPCursorUp"},
 	}
 	for _, tt := range tests {
-		a := &mockActions{tabIndex: 0} // MCP tab
+		a := &mockPluginsPanelActions{tabIndex: 0} // MCP tab
 		r := p.HandleKey(tt.ev, a)
 		if r != keyhandler.Handled {
 			t.Errorf("key %v: want Handled", tt.ev)
@@ -34,7 +35,8 @@ func TestPluginsPanel_MCPTab_Navigation(t *testing.T) {
 
 func TestPluginsPanel_MCPTab_Operations(t *testing.T) {
 	reg := keymap.Default()
-	p := keyhandler.NewPluginsPanel(reg)
+	entry := keyhandler.NewPluginsPanel(reg)
+	p := entry.Panel.(*keyhandler.PluginsPanel)
 	tests := []struct {
 		ev   keyhandler.KeyEvent
 		want string
@@ -43,7 +45,7 @@ func TestPluginsPanel_MCPTab_Operations(t *testing.T) {
 		{keyhandler.KeyEvent{Rune: 'r'}, "MCPRefresh"},
 	}
 	for _, tt := range tests {
-		a := &mockActions{tabIndex: 0} // MCP tab
+		a := &mockPluginsPanelActions{tabIndex: 0} // MCP tab
 		r := p.HandleKey(tt.ev, a)
 		if r != keyhandler.Handled {
 			t.Errorf("key %v: want Handled", tt.ev)
@@ -56,7 +58,8 @@ func TestPluginsPanel_MCPTab_Operations(t *testing.T) {
 
 func TestPluginsPanel_PluginsTab_Navigation(t *testing.T) {
 	reg := keymap.Default()
-	p := keyhandler.NewPluginsPanel(reg)
+	entry := keyhandler.NewPluginsPanel(reg)
+	p := entry.Panel.(*keyhandler.PluginsPanel)
 	tests := []struct {
 		ev   keyhandler.KeyEvent
 		want string
@@ -67,7 +70,7 @@ func TestPluginsPanel_PluginsTab_Navigation(t *testing.T) {
 		{keyhandler.KeyEvent{Key: gocui.KeyArrowUp}, "PluginCursorUp"},
 	}
 	for _, tt := range tests {
-		a := &mockActions{tabIndex: 1} // Plugins tab
+		a := &mockPluginsPanelActions{tabIndex: 1} // Plugins tab
 		r := p.HandleKey(tt.ev, a)
 		if r != keyhandler.Handled {
 			t.Errorf("key %v: want Handled", tt.ev)
@@ -80,7 +83,8 @@ func TestPluginsPanel_PluginsTab_Navigation(t *testing.T) {
 
 func TestPluginsPanel_PluginsTab_Operations(t *testing.T) {
 	reg := keymap.Default()
-	p := keyhandler.NewPluginsPanel(reg)
+	entry := keyhandler.NewPluginsPanel(reg)
+	p := entry.Panel.(*keyhandler.PluginsPanel)
 	tests := []struct {
 		ev   keyhandler.KeyEvent
 		want string
@@ -91,7 +95,7 @@ func TestPluginsPanel_PluginsTab_Operations(t *testing.T) {
 		{keyhandler.KeyEvent{Rune: 'r'}, "PluginRefresh"},
 	}
 	for _, tt := range tests {
-		a := &mockActions{tabIndex: 1} // Plugins tab
+		a := &mockPluginsPanelActions{tabIndex: 1} // Plugins tab
 		r := p.HandleKey(tt.ev, a)
 		if r != keyhandler.Handled {
 			t.Errorf("key %v: want Handled", tt.ev)
@@ -104,7 +108,8 @@ func TestPluginsPanel_PluginsTab_Operations(t *testing.T) {
 
 func TestPluginsPanel_MarketplaceTab_Operations(t *testing.T) {
 	reg := keymap.Default()
-	p := keyhandler.NewPluginsPanel(reg)
+	entry := keyhandler.NewPluginsPanel(reg)
+	p := entry.Panel.(*keyhandler.PluginsPanel)
 	tests := []struct {
 		ev   keyhandler.KeyEvent
 		want string
@@ -113,7 +118,7 @@ func TestPluginsPanel_MarketplaceTab_Operations(t *testing.T) {
 		{keyhandler.KeyEvent{Rune: 'r'}, "PluginRefresh"},
 	}
 	for _, tt := range tests {
-		a := &mockActions{tabIndex: 2} // Marketplace tab
+		a := &mockPluginsPanelActions{tabIndex: 2} // Marketplace tab
 		r := p.HandleKey(tt.ev, a)
 		if r != keyhandler.Handled {
 			t.Errorf("key %v: want Handled", tt.ev)
@@ -126,8 +131,9 @@ func TestPluginsPanel_MarketplaceTab_Operations(t *testing.T) {
 
 func TestPluginsPanel_PluginsTab_RejectsMarketplaceKeys(t *testing.T) {
 	reg := keymap.Default()
-	p := keyhandler.NewPluginsPanel(reg)
-	a := &mockActions{tabIndex: 1} // Plugins tab
+	entry := keyhandler.NewPluginsPanel(reg)
+	p := entry.Panel.(*keyhandler.PluginsPanel)
+	a := &mockPluginsPanelActions{tabIndex: 1} // Plugins tab
 	if p.HandleKey(keyhandler.KeyEvent{Rune: 'i'}, a) != keyhandler.Unhandled {
 		t.Error("'i' should be Unhandled on Plugins tab")
 	}
@@ -135,8 +141,9 @@ func TestPluginsPanel_PluginsTab_RejectsMarketplaceKeys(t *testing.T) {
 
 func TestPluginsPanel_TabSwitchingHandledByGlobal(t *testing.T) {
 	reg := keymap.Default()
-	p := keyhandler.NewPluginsPanel(reg)
-	a := newMockActions()
+	entry := keyhandler.NewPluginsPanel(reg)
+	p := entry.Panel.(*keyhandler.PluginsPanel)
+	a := &mockPluginsPanelActions{}
 
 	if p.HandleKey(keyhandler.KeyEvent{Rune: '['}, a) != keyhandler.Unhandled {
 		t.Error("[ should be Unhandled by PluginsPanel")
@@ -148,8 +155,9 @@ func TestPluginsPanel_TabSwitchingHandledByGlobal(t *testing.T) {
 
 func TestPluginsPanel_Unhandled(t *testing.T) {
 	reg := keymap.Default()
-	p := keyhandler.NewPluginsPanel(reg)
-	a := newMockActions()
+	entry := keyhandler.NewPluginsPanel(reg)
+	p := entry.Panel.(*keyhandler.PluginsPanel)
+	a := &mockPluginsPanelActions{}
 	if p.HandleKey(keyhandler.KeyEvent{Rune: 'x'}, a) != keyhandler.Unhandled {
 		t.Error("'x' should be Unhandled")
 	}
@@ -157,10 +165,10 @@ func TestPluginsPanel_Unhandled(t *testing.T) {
 
 func TestPluginsPanel_OptionsBarForTab(t *testing.T) {
 	reg := keymap.Default()
-	p := keyhandler.NewPluginsPanel(reg)
-	mcpBar := p.OptionsBarForTab(0)
-	pluginsBar := p.OptionsBarForTab(1)
-	marketBar := p.OptionsBarForTab(2)
+	entry := keyhandler.NewPluginsPanel(reg)
+	mcpBar := entry.OptionsBarForTab(0)
+	pluginsBar := entry.OptionsBarForTab(1)
+	marketBar := entry.OptionsBarForTab(2)
 
 	if mcpBar == pluginsBar {
 		t.Error("MCP and plugins options bars should differ")
@@ -172,14 +180,14 @@ func TestPluginsPanel_OptionsBarForTab(t *testing.T) {
 
 func TestPluginsPanel_Name(t *testing.T) {
 	reg := keymap.Default()
-	p := keyhandler.NewPluginsPanel(reg)
-	if p.Name() != "plugins" {
-		t.Errorf("Name = %q", p.Name())
+	entry := keyhandler.NewPluginsPanel(reg)
+	if entry.Name() != "plugins" {
+		t.Errorf("Name = %q", entry.Name())
 	}
-	if p.TabCount() != 3 {
-		t.Errorf("TabCount = %d", p.TabCount())
+	if entry.TabCount() != 3 {
+		t.Errorf("TabCount = %d", entry.TabCount())
 	}
-	labels := p.TabLabels()
+	labels := entry.TabLabels()
 	if len(labels) != 3 || labels[0] != "MCP" || labels[1] != "Plugins" || labels[2] != "Marketplace" {
 		t.Errorf("TabLabels = %v", labels)
 	}

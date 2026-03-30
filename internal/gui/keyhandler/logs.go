@@ -10,9 +10,16 @@ type LogsPanel struct {
 	reg *keymap.Registry
 }
 
-// NewLogsPanel creates a LogsPanel with injected registry.
-func NewLogsPanel(reg *keymap.Registry) *LogsPanel {
-	return &LogsPanel{reg: reg}
+// NewLogsPanel creates a LogsPanel and returns it wrapped as
+// a PanelWithHandler for use with PanelManager.
+func NewLogsPanel(reg *keymap.Registry) PanelWithHandler {
+	p := &LogsPanel{reg: reg}
+	return PanelWithHandler{
+		Panel: p,
+		HandleKey: func(ev KeyEvent, actions AppActions) HandlerResult {
+			return p.HandleKey(ev, actions)
+		},
+	}
 }
 
 func (p *LogsPanel) Name() string        { return "logs" }
@@ -21,7 +28,9 @@ func (p *LogsPanel) Scope() keymap.Scope { return keymap.ScopeLog }
 
 func (p *LogsPanel) OnTabChanged(_ int, _ AppActions) {} // single-tab: no-op
 
-func (p *LogsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
+// HandleKey dispatches logs-scoped key events.
+// Depends only on LogsActions.
+func (p *LogsPanel) HandleKey(ev KeyEvent, actions LogsActions) HandlerResult {
 	def, ok := p.reg.Match(ev.Rune, ev.Key, ev.Mod, keymap.ScopeLog)
 	if !ok {
 		return Unhandled

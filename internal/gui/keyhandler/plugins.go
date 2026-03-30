@@ -12,9 +12,16 @@ type PluginsPanel struct {
 	reg *keymap.Registry
 }
 
-// NewPluginsPanel creates a PluginsPanel with injected registry.
-func NewPluginsPanel(reg *keymap.Registry) *PluginsPanel {
-	return &PluginsPanel{reg: reg}
+// NewPluginsPanel creates a PluginsPanel and returns it wrapped as
+// a PanelWithHandler for use with PanelManager.
+func NewPluginsPanel(reg *keymap.Registry) PanelWithHandler {
+	p := &PluginsPanel{reg: reg}
+	return PanelWithHandler{
+		Panel: p,
+		HandleKey: func(ev KeyEvent, actions AppActions) HandlerResult {
+			return p.HandleKey(ev, actions)
+		},
+	}
 }
 
 func (p *PluginsPanel) Name() string        { return "plugins" }
@@ -25,7 +32,9 @@ func (p *PluginsPanel) OnTabChanged(newTab int, actions AppActions) {
 	actions.PluginSetTab(newTab)
 }
 
-func (p *PluginsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
+// HandleKey dispatches plugin/MCP-scoped key events.
+// Depends only on PluginsPanelActions.
+func (p *PluginsPanel) HandleKey(ev KeyEvent, actions PluginsPanelActions) HandlerResult {
 	tab := actions.ActivePanelTabIndex()
 	def, ok := p.reg.MatchTab(ev.Rune, ev.Key, ev.Mod, keymap.ScopePlugins, tab)
 	if !ok {

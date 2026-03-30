@@ -16,8 +16,3 @@ type KeyEvent struct {
 	Rune rune
 	Mod  gocui.Modifier
 }
-
-// KeyHandler processes a key event and returns whether it was consumed.
-type KeyHandler interface {
-	HandleKey(ev KeyEvent, actions AppActions) HandlerResult
-}

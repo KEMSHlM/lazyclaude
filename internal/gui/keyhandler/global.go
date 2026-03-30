@@ -17,7 +17,9 @@ func NewGlobalHandler(pm *PanelManager, reg *keymap.Registry) *GlobalHandler {
 	return &GlobalHandler{panels: pm, reg: reg}
 }
 
-func (h *GlobalHandler) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
+// HandleKey dispatches global-scoped key events.
+// Depends only on GlobalActions.
+func (h *GlobalHandler) HandleKey(ev KeyEvent, actions GlobalActions) HandlerResult {
 	def, ok := h.reg.Match(ev.Rune, ev.Key, ev.Mod, keymap.ScopeGlobal)
 	if !ok {
 		// Esc quits in non-main modes (Diff/Tool) — not in registry because

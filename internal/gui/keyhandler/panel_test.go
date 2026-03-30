@@ -48,16 +48,16 @@ func TestPanelManager_PanelCount(t *testing.T) {
 
 func TestPanel_TabSupport(t *testing.T) {
 	reg := keymap.Default()
-	s := keyhandler.NewSessionsPanel(reg)
-	if s.TabCount() != 1 {
-		t.Errorf("SessionsPanel TabCount = %d, want 1", s.TabCount())
+	entry := keyhandler.NewSessionsPanel(reg)
+	if entry.TabCount() != 1 {
+		t.Errorf("SessionsPanel TabCount = %d, want 1", entry.TabCount())
 	}
-	labels := s.TabLabels()
+	labels := entry.TabLabels()
 	if len(labels) != 1 || labels[0] != "Sessions" {
 		t.Errorf("SessionsPanel TabLabels = %v", labels)
 	}
 	// OptionsBarForTab ignores tabIdx for single-tab panels
-	if s.OptionsBarForTab(0) == "" {
+	if entry.OptionsBarForTab(0) == "" {
 		t.Error("OptionsBarForTab(0) should not be empty")
 	}
 }

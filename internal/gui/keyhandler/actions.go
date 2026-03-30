@@ -2,19 +2,15 @@ package keyhandler
 
 import "github.com/KEMSHlM/lazyclaude/internal/core/choice"
 
-// AppActions defines actions that key handlers can invoke.
-// Handlers depend only on this interface, never on the concrete App type.
-type AppActions interface {
-	// State queries (used by popup/fullscreen/global handlers)
-	HasPopup() bool
-	IsFullScreen() bool
-	Mode() int // 0=Main, 1=Diff, 2=Tool
+// ---------------------------------------------------------------------------
+// Domain-specific action interfaces.
+// Each handler depends only on the narrow interface it needs.
+// ---------------------------------------------------------------------------
 
-	// Session cursor
+// SessionActions provides session list and tree operations.
+type SessionActions interface {
 	MoveCursorDown()
 	MoveCursorUp()
-
-	// Session operations
 	CreateSession()
 	CreateSessionAtCWD()
 	DeleteSession()
@@ -26,45 +22,48 @@ type AppActions interface {
 	SelectWorktree()
 	PurgeOrphans()
 	StartPMSession()
-
-	// Tree operations
+	SendKeyToPane(key string)
 	ToggleProjectExpanded()
 	CollapseProject()
 	ExpandProject()
 	CursorIsProject() bool
+	StartSearch()
+}
 
-	// Popup
+// PopupActions provides popup management.
+type PopupActions interface {
+	HasPopup() bool
 	DismissPopup(c choice.Choice)
 	DismissAllPopups(c choice.Choice)
 	SuspendPopups()
-	UnsuspendPopups()
 	PopupFocusNext()
 	PopupFocusPrev()
 	PopupScrollDown()
 	PopupScrollUp()
+}
 
-	// FullScreen
+// FullScreenActions provides fullscreen mode operations.
+type FullScreenActions interface {
+	IsFullScreen() bool
 	ExitFullScreen()
 	ForwardSpecialKey(tmuxKey string)
+}
 
-	// Send key to the selected session's pane (works without fullscreen)
-	SendKeyToPane(key string)
-
-	// Logs panel
+// LogsActions provides logs panel operations.
+type LogsActions interface {
 	LogsCursorDown()
 	LogsCursorUp()
 	LogsCursorToEnd()
 	LogsCursorToTop()
 	LogsToggleSelect()
 	LogsCopySelection()
+	StartSearch()
+}
 
-	// Panel tab switching (generic — works for any multi-tab panel)
-	PanelNextTab() // ] — next tab within active panel
-	PanelPrevTab() // [ — prev tab within active panel
-	ActivePanelTabIndex() int // current tab index of the active panel
-
-	// Plugin panel
-	PluginSetTab(tab int) // set the active plugin tab index
+// PluginsPanelActions provides plugin/MCP panel operations.
+type PluginsPanelActions interface {
+	ActivePanelTabIndex() int
+	PluginSetTab(tab int)
 	PluginCursorDown()
 	PluginCursorUp()
 	PluginInstall()
@@ -72,19 +71,35 @@ type AppActions interface {
 	PluginToggleEnabled()
 	PluginUpdate()
 	PluginRefresh()
-
-	// MCP panel
 	MCPCursorDown()
 	MCPCursorUp()
 	MCPToggleDenied()
 	MCPRefresh()
-
-	// Help
-	ShowKeybindHelp()
-
-	// Search
 	StartSearch()
+}
 
-	// Application
+// GlobalActions provides application-level key handler operations.
+type GlobalActions interface {
+	Mode() int
 	Quit()
+	UnsuspendPopups()
+	PanelNextTab()
+	PanelPrevTab()
+	ShowKeybindHelp()
+}
+
+// ---------------------------------------------------------------------------
+// Composite interface for the dispatch boundary.
+// ---------------------------------------------------------------------------
+
+// AppActions is the composite of all action interfaces.
+// Implemented by *App; used by the Dispatcher to route keys through
+// the full handler chain.
+type AppActions interface {
+	SessionActions
+	PopupActions
+	FullScreenActions
+	LogsActions
+	PluginsPanelActions
+	GlobalActions
 }
