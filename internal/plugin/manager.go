@@ -110,15 +110,15 @@ func (m *Manager) Install(ctx context.Context, pluginID string, scope string) er
 }
 
 // Uninstall removes a plugin and refreshes the cache.
-func (m *Manager) Uninstall(ctx context.Context, pluginID string) error {
-	if err := m.cli.Uninstall(ctx, pluginID); err != nil {
+func (m *Manager) Uninstall(ctx context.Context, pluginID string, scope string) error {
+	if err := m.cli.Uninstall(ctx, pluginID, scope); err != nil {
 		return err
 	}
 	return m.Refresh(ctx)
 }
 
 // ToggleEnabled enables a disabled plugin or disables an enabled one.
-func (m *Manager) ToggleEnabled(ctx context.Context, pluginID string) error {
+func (m *Manager) ToggleEnabled(ctx context.Context, pluginID string, scope string) error {
 	m.mu.RLock()
 	var found *InstalledPlugin
 	for i := range m.installed {
@@ -135,11 +135,11 @@ func (m *Manager) ToggleEnabled(ctx context.Context, pluginID string) error {
 	}
 
 	if found.Enabled {
-		if err := m.cli.Disable(ctx, pluginID); err != nil {
+		if err := m.cli.Disable(ctx, pluginID, scope); err != nil {
 			return err
 		}
 	} else {
-		if err := m.cli.Enable(ctx, pluginID); err != nil {
+		if err := m.cli.Enable(ctx, pluginID, scope); err != nil {
 			return err
 		}
 	}

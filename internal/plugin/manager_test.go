@@ -147,7 +147,7 @@ func TestManager_Uninstall(t *testing.T) {
 
 	mgr := NewManager(NewExecCLI(WithRunner(runner)), nil)
 
-	err := mgr.Uninstall(context.Background(), "lua-lsp@official")
+	err := mgr.Uninstall(context.Background(), "lua-lsp@official", "project")
 	if err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestManager_ToggleEnabled(t *testing.T) {
 	}
 
 	// Toggle enabled plugin -> should disable
-	if err := mgr.ToggleEnabled(ctx, "lua-lsp@official"); err != nil {
+	if err := mgr.ToggleEnabled(ctx, "lua-lsp@official", "user"); err != nil {
 		t.Fatalf("ToggleEnabled (disable): %v", err)
 	}
 	if lastCmd != "disable" {
@@ -201,7 +201,7 @@ func TestManager_ToggleEnabled(t *testing.T) {
 	}
 
 	// Toggle disabled plugin -> should enable
-	if err := mgr.ToggleEnabled(ctx, "pyright@official"); err != nil {
+	if err := mgr.ToggleEnabled(ctx, "pyright@official", "user"); err != nil {
 		t.Fatalf("ToggleEnabled (enable): %v", err)
 	}
 	if lastCmd != "enable" {
@@ -226,7 +226,7 @@ func TestManager_ToggleEnabled_NotFound(t *testing.T) {
 	ctx := context.Background()
 	_ = mgr.Refresh(ctx)
 
-	err := mgr.ToggleEnabled(ctx, "nonexistent@official")
+	err := mgr.ToggleEnabled(ctx, "nonexistent@official", "user")
 	if err == nil {
 		t.Fatal("expected error for nonexistent plugin")
 	}
