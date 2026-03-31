@@ -1,60 +1,56 @@
 # lazyclaude
 
-## テスト
+## Testing
 
-### ユニットテスト (ホストで実行可能)
+### Unit tests (run on host)
 
 ```bash
 go test ./internal/... -count=1
 go test -cover ./internal/...
 ```
 
-### VHS 可視化 E2E (Docker 必須)
+### VHS visual E2E (Docker required)
 
 ```bash
-# テスト実行
-make test-vhs TAPE=ssh_launch
 make test-vhs TAPE=smoke
 
-# フレーム確認
-awk '/\[Frame 5\]/,/\[Frame 6\]/{if(/\[Frame 6\]/)exit; print}' vis_e2e_tests/outputs/ssh_launch/ssh_launch.log
+# Check specific frame
+awk '/\[Frame 5\]/,/\[Frame 6\]/{if(/\[Frame 6\]/)exit; print}' vis_e2e_tests/outputs/smoke/smoke.log
 ```
 
-- tape は人間の操作のみ。テスト都合は `entrypoint.sh`
-- 出力: `outputs/{name}/` に `.gif` + `.txt` + `.log`
-- lazyclaude の起動は `lazyclaude` コマンド直接入力ではなく、tmux plugin 経由 (`Ctrl+\`) で行う。Dockerfile の bash ラッパーが `lazyclaude setup` + `lazyclaude.tmux` を自動実行するため、tape 内では `Ctrl+\` を押すだけで popup が開く (SSH 不要。SSH は SSH テスト専用)
-- worktree で作業する場合は `.claude/worktree/` 配下で行う。Docker コンテナ名・ネットワーク名が他の実行と競合しないか事前確認すること (`docker compose ps` で既存コンテナを確認)
-- テスト完了後は `open vis_e2e_tests/outputs/<tape名>/` で Finder から gif 等の結果を確認する
+- Tapes contain only human interactions. Test setup goes in `entrypoint.sh`
+- Output: `outputs/{name}/` with `.gif` + `.txt` + `.log`
+- Launch lazyclaude via tmux plugin (`Ctrl+\`), not the binary directly. The Dockerfile's bash wrapper runs `lazyclaude setup` + `lazyclaude.tmux` automatically, so just press `Ctrl+\` in the tape to open the popup
+- When working in worktrees, use `.claude/worktree/`. Check for container name conflicts before running (`docker compose ps`)
+- After tests, run `open vis_e2e_tests/outputs/<tape>/` to inspect GIF results in Finder
 
-### E2E 手動デバッグ (Docker シェル)
+### E2E manual debugging (Docker shell)
 
-VHS tape だけでは再現・検証が難しい場合、ユーザーにコンテナ内シェルでの手動確認を依頼する:
+When VHS tapes are insufficient for reproduction/verification, ask the user to debug in a container shell:
 
 ```bash
-# ビルド
 docker compose -p lazyclaude-e2e-$(git rev-parse --short HEAD) \
   -f vis_e2e_tests/docker-compose.ssh.yml build
 
-# コンテナ内シェルに入る
 docker compose -p lazyclaude-e2e-$(git rev-parse --short HEAD) \
   -f vis_e2e_tests/docker-compose.ssh.yml run --rm vhs bash
 ```
 
-- `-p` にコミットハッシュを含めて他の実行と競合しないようにする
-- E2E 自動テストで限界がある場合のみ使用し、ユーザーに実行を依頼する
+- Include commit hash in `-p` to avoid conflicts with other runs
+- Use only when automated E2E tests hit their limits; ask the user to run it
 
-### Claude Code 認証 (Docker)
+### Claude Code auth (Docker)
 
 ```bash
 claude setup-token
 echo "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-..." > vis_e2e_tests/.env
 ```
 
-## gocui の注意点
+## gocui notes
 
-### ErrUnknownView の比較
+### ErrUnknownView comparison
 
-`==` や `errors.Is` では一致しない。文字列比較を使う:
+`==` and `errors.Is` do not match. Use string comparison:
 
 ```go
 func isUnknownView(err error) bool {
@@ -62,101 +58,101 @@ func isUnknownView(err error) bool {
 }
 ```
 
-### Editor と keybinding の dispatch 順序
+### Editor and keybinding dispatch order
 
 ```
-1. View-specific bindings (popupViewName 等)
-2. Editor.Edit() — Editable=true の view のみ
-3. Global bindings — ただし Editable view では rune キー (ch!=0) のグローバルバインドはスキップ
+1. View-specific bindings (popupViewName etc.)
+2. Editor.Edit() — only for views with Editable=true
+3. Global bindings — but rune keys (ch!=0) skip global bindings on Editable views
 ```
 
-### Frame=false ビューの座標系
+### Frame=false view coordinates
 
-`Frame=false` でもコンテンツ領域は `(x0+1, y0+1)` から `(x1-1, y1-1)` のまま。
-フレームは描画されないが、y0 / y1 の行はコンテンツに使われない。
-frameless バーを配置するときは y0+1 がテキスト開始位置になることに注意。
+With `Frame=false`, the content area is still `(x0+1, y0+1)` to `(x1-1, y1-1)`.
+The frame is not drawn, but the y0/y1 rows are not used for content.
+When placing a frameless bar, note that y0+1 is where text starts.
 
 ```
-InnerWidth  = Width  - 2  (常に)
-InnerHeight = Height - 2  (常に)
+InnerWidth  = Width  - 2  (always)
+InnerHeight = Height - 2  (always)
 ```
 
-### Ctrl+[ と Esc
+### Ctrl+[ and Esc
 
-同じバイト (0x1B)。gocui/tcell で区別不可能。
-lazyclaude は **Ctrl+\\** を normal mode 切替に使用。
+Same byte (0x1B). Indistinguishable in gocui/tcell.
+lazyclaude uses **Ctrl+\\** for normal mode toggle.
 
-### ペースト処理
+### Paste handling
 
-- pollEvent レベルで bracketed paste を集約し、単一の `eventPasteContent` として gEvents に送る
-- gEvents チャネルのオーバーフロー（容量20）を構造的に防止
-- ESC[200~ フォールバック検出: tmux display-popup で tcell が EventPaste を送れない場合の対策
-- inputEditor はペースト状態マシンを持たない。`OnPasteContent` callback 経由で `forwardPaste` を呼ぶだけ
+- Bracketed paste is aggregated at the pollEvent level into a single `eventPasteContent` sent to gEvents
+- Structurally prevents gEvents channel overflow (capacity 20)
+- ESC[200~ fallback detection: workaround for tmux display-popup where tcell cannot send EventPaste
+- inputEditor has no paste state machine. It just calls `forwardPaste` via `OnPasteContent` callback
 
 ### third_party/gocui, third_party/tcell
 
-- `third_party/gocui`: jesseduffield/gocui のフォーク。paste 集約、rawEvents パイプライン等を追加
-- `third_party/tcell`: gdamore/tcell/v2 のフォーク。最小限のビルドファイルのみ。パッチ内容は `LAZYCLAUDE_PATCHES.md` に記録
-- `go.mod` の `replace` directive でローカル参照
+- `third_party/gocui`: fork of jesseduffield/gocui. Adds paste aggregation, rawEvents pipeline, etc.
+- `third_party/tcell`: fork of gdamore/tcell/v2. Minimal build files only. Patches documented in `LAZYCLAUDE_PATCHES.md`
+- Referenced via `replace` directives in `go.mod`
 
-## tmux アーキテクチャ
+## tmux architecture
 
-### 2つの tmux サーバー
+### Two tmux servers
 
-1. **ユーザーの tmux** (デフォルトソケット) — `display-popup` で lazyclaude TUI を表示
-2. **lazyclaude tmux** (`-L lazyclaude` ソケット) — Claude Code セッションを管理
+1. **User's tmux** (default socket) -- displays lazyclaude TUI via `display-popup`
+2. **lazyclaude tmux** (`-L lazyclaude` socket) -- manages Claude Code session windows
 
-### キー入力の流れ
+### Key input flow
 
 ```
-popup 外: キー → ユーザーの tmux root table → マッチなら実行
-popup 内: キー → popup プロセスに直接渡る (ユーザーの tmux root table はバイパス)
-attach 中: キー → lazyclaude tmux の root table → マッチなら実行
+Outside popup: key -> user's tmux root table -> execute if matched
+Inside popup:  key -> delivered directly to popup process (user's tmux root table bypassed)
+During attach: key -> lazyclaude tmux root table -> execute if matched
 ```
 
-### display-popup の動作 (tmux 3.4+)
+### display-popup behavior (tmux 3.4+)
 
-- TUI の起動のみに使用 (`lazyclaude-launch.sh` → `display-popup`)
-- 通知ポップアップは gocui overlay で表示 (display-popup 通知モードは #18 で削除済み)
-- popup 内から `display-popup` を呼ぶと既存 popup を **変更** できる (ネストではない)
-- `-b rounded` / `-B` で枠線を動的に切り替え可能
-- popup 内のプロセスが終了すると変更も消える
+- Used only for TUI launch (`lazyclaude-launch.sh` -> `display-popup`)
+- Notification popups are rendered as gocui overlays (display-popup notification mode removed in #18)
+- Calling `display-popup` from inside a popup **modifies** the existing popup (not nested)
+- Border style can be toggled dynamically with `-b rounded` / `-B`
+- Changes disappear when the process inside the popup exits
 
-### `tmux source` はキーバインドをリセットしない
+### `tmux source` does not reset keybindings
 
-上書きまたは追加のみ。完全リセットは tmux サーバーの再起動が必要。
+It only overwrites or adds. Full reset requires restarting the tmux server.
 
-### MCP サーバー
+### MCP server
 
-- TUI 起動時に in-process で起動 (`tryStartInProcessServer`)。既存 daemon は `StopDaemon` で停止してから起動
-- `lazyclaude setup` は daemon を起動するが、TUI 起動時に in-process に切り替わる
-- サーバーログ: `/tmp/lazyclaude/server.log` (prefix: `lazyclaude-srv:`)
-- 重複起動防止: `server.IsAlive()` で port file + TCP dial チェック
-- gocui TUI プロセス内で `slog.Default()` を使うとターミナル描画が破壊される。エラーは `fmt.Errorf` で返却し GUI 層で表示する
-- broker は root.go で作成し `WithBroker` option でサーバーに注入。サーバー再起動しても broker (= GUI subscription) は維持される
+- Starts in-process at TUI launch (`tryStartInProcessServer`). Existing daemons are stopped via `StopDaemon` first
+- `lazyclaude setup` starts a daemon, but TUI launch switches to in-process
+- Server log: `/tmp/lazyclaude/server.log` (prefix: `lazyclaude-srv:`)
+- Duplicate prevention: `server.IsAlive()` checks port file + TCP dial
+- Using `slog.Default()` inside the gocui TUI process corrupts terminal rendering. Return errors via `fmt.Errorf` and display in the GUI layer
+- Broker is created in root.go and injected via `WithBroker` option. Survives server restarts (GUI subscriptions remain valid)
 
 ### Hook injection
 
-- `claude --settings <file>` でセッション起動時に hooks を注入。`~/.claude/settings.json` は変更しない
-- hooks: PreToolUse, Notification, Stop, SessionStart, UserPromptSubmit の 5 種類
-- `WriteHooksSettingsFile()` で runtime dir にファイル書き出し。`SetEscapeHTML(false)` で JS 演算子 (`=>`) を保持
-- サーバー発見は常に lock file scanning (`findAliveLockJS`)。env var は使わない（再起動耐性）
+- Hooks are injected at session startup via `claude --settings <file>`. `~/.claude/settings.json` is never modified
+- 5 hook types: PreToolUse, Notification, Stop, SessionStart, UserPromptSubmit
+- `WriteHooksSettingsFile()` writes to runtime dir. Uses `SetEscapeHTML(false)` to preserve JS operators (`=>`)
+- Server discovery always uses lock file scanning (`findAliveLockJS`). No env vars (restart-resilient)
 
 ### Activity state (5-stage)
 
 - `ActivityState` enum: Unknown, Running, NeedsInput, Idle, Error, Dead
-- hook イベント → broker → GUI の `windowActivity` map → sidebar icon 更新
-- 起動直後は `ActivityUnknown` (gray `?`)。hook イベントで正しい状態に遷移
-- popup dismiss 時に NeedsInput → Running に即時遷移
+- Hook events -> broker -> GUI's `windowActivity` map -> sidebar icon update
+- On startup: `ActivityUnknown` (gray `?`). Transitions to correct state on first hook event
+- On popup dismiss: NeedsInput -> Running immediately
 
-### パフォーマンス
+### Performance
 
-- パフォーマンス問題は git bisect でバイナリ比較して特定する (コード分析より確実)
-- チェックポイントは `.claude/checkpoints.log` に記録
+- Diagnose performance issues with git bisect on binaries (more reliable than code analysis)
+- Checkpoints recorded in `.claude/checkpoints.log`
 
-### SSH コマンド生成
+### SSH command generation
 
-- リモートコマンドは plain bash スクリプトとしてファイルに書き出し、base64 でエンコード
-- ネストクォート禁止。`shell.Quote` を SSH コマンド文字列内で使わない
-- `scripts/lazyclaude-launch.sh` は tmux plugin (`Ctrl+\`) 専用のエントリポイント (display-popup 経由)
-- standalone 実行は Go バイナリ (`bin/lazyclaude`) を直接起動
+- Remote commands are written as plain bash scripts and base64-encoded
+- No nested quoting. Do not use `shell.Quote` inside SSH command strings
+- `scripts/lazyclaude-launch.sh` is the entry point for tmux plugin (`Ctrl+\`) only (via display-popup)
+- Standalone execution launches the Go binary (`bin/lazyclaude`) directly

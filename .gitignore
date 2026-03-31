@@ -7,4 +7,6 @@ integration.test
 .DS_Store
 old_tapes/
 .claude/worktrees
+.claude/settings.json
+.claude/settings.local.json
 .reports/
