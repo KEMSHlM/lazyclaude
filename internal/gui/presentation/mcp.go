@@ -11,9 +11,9 @@ import (
 func FormatMCPLine(name, serverType, scope string, denied bool, maxWidth int) string {
 	var icon string
 	if denied {
-		icon = FgYellow + "[D]" + Reset
+		icon = FgDimGray + " ○" + Reset
 	} else {
-		icon = FgGreen + "[E]" + Reset
+		icon = FgGreen + " ●" + Reset
 	}
 
 	right := Dim + scope + Reset

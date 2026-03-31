@@ -12,9 +12,9 @@ import (
 func FormatInstalledLine(id, version, scope string, enabled bool, maxWidth int) string {
 	var icon string
 	if enabled {
-		icon = FgGreen + "[E]" + Reset
+		icon = FgGreen + " ●" + Reset
 	} else {
-		icon = FgYellow + "[D]" + Reset
+		icon = FgDimGray + " ○" + Reset
 	}
 
 	rightStr := Dim + version + Reset + "  " + Dim + scope + Reset
