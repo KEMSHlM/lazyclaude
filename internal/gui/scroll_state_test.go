@@ -246,25 +246,32 @@ func TestScrollState_CaptureRange(t *testing.T) {
 		wantEnd      int
 	}{
 		{
-			name:         "one screen up",
-			scrollOffset: 40,
+			name:         "at bottom (live)",
+			scrollOffset: 0,
 			viewHeight:   40,
-			wantStart:    -80,
-			wantEnd:      -41,
+			wantStart:    0,
+			wantEnd:      39,
 		},
 		{
 			name:         "ten lines up",
 			scrollOffset: 10,
 			viewHeight:   40,
-			wantStart:    -50,
-			wantEnd:      -11,
+			wantStart:    -10,
+			wantEnd:      29,
 		},
 		{
-			name:         "at bottom (live)",
-			scrollOffset: 0,
+			name:         "one screen up",
+			scrollOffset: 40,
 			viewHeight:   40,
 			wantStart:    -40,
 			wantEnd:      -1,
+		},
+		{
+			name:         "two screens up",
+			scrollOffset: 80,
+			viewHeight:   40,
+			wantStart:    -80,
+			wantEnd:      -41,
 		},
 	}
 
@@ -295,12 +302,12 @@ func TestScrollState_Generation(t *testing.T) {
 	}
 }
 
-func TestScrollState_SetLinesTrimsTrailingEmpty(t *testing.T) {
+func TestScrollState_SetLinesPreservesTrailingEmpty(t *testing.T) {
 	s := NewScrollState()
 	s.Enter(40)
 	s.SetLines([]string{"line0", "line1", "", "  ", ""})
-	if len(s.Lines()) != 2 {
-		t.Errorf("Lines() = %d, want 2 (trailing empty trimmed)", len(s.Lines()))
+	if len(s.Lines()) != 5 {
+		t.Errorf("Lines() = %d, want 5 (trailing empty preserved)", len(s.Lines()))
 	}
 }
 

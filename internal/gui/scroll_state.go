@@ -1,7 +1,5 @@
 package gui
 
-import "strings"
-
 // ScrollState manages scrollback browsing and text selection in fullscreen mode.
 // No gocui dependency -- independently testable.
 type ScrollState struct {
@@ -120,13 +118,9 @@ func (s *ScrollState) CursorUp() {
 }
 
 // SetLines stores the captured scrollback lines and adjusts state.
-// Trims trailing empty lines and auto-detects maxOffset when fewer
-// lines than viewHeight are returned (top of scrollback reached).
+// Auto-detects maxOffset when fewer lines than viewHeight are returned
+// (top of scrollback reached).
 func (s *ScrollState) SetLines(lines []string) {
-	// Trim trailing empty lines
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
 	s.lines = lines
 	// If capture returned fewer lines than viewport, we've hit the top
 	if len(lines) > 0 && len(lines) < s.viewHeight && s.maxOffset == 0 {
@@ -197,8 +191,13 @@ func (s *ScrollState) BumpGeneration() { s.generation++ }
 
 // CaptureRange computes the -S and -E flags for capture-pane based on current scroll state.
 // Returns (start, end) as negative offsets from the bottom of the scrollback.
+// CaptureRange computes the -S and -E flags for capture-pane.
+// tmux coordinates: 0 = top of visible area, negative = scrollback history.
+//
+//	offset=0 → (0, viewH-1)     visible area
+//	offset=N → (-N, viewH-1-N)  N lines into scrollback
 func (s *ScrollState) CaptureRange() (start, end int) {
-	start = -(s.scrollOffset + s.viewHeight)
-	end = -(s.scrollOffset + 1)
+	start = -s.scrollOffset
+	end = s.viewHeight - 1 - s.scrollOffset
 	return start, end
 }
