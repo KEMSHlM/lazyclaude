@@ -41,9 +41,9 @@ func FormatInstalledLine(id, version, scope string, enabled bool, maxWidth int) 
 func FormatAvailableLine(name, description string, installCount int, installed bool, maxWidth int) string {
 	var prefix string
 	if installed {
-		prefix = FgGreen + "[I]" + Reset + " "
+		prefix = FgGreen + " ●" + Reset + " "
 	} else {
-		prefix = "    "
+		prefix = "   "
 	}
 
 	countStr := fmt.Sprintf("%d", installCount)
