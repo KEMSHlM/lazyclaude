@@ -1,13 +1,18 @@
 package server_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"log"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/event"
 	"github.com/KEMSHlM/lazyclaude/internal/core/model"
+	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/KEMSHlM/lazyclaude/internal/server"
 	"github.com/stretchr/testify/assert"
@@ -216,6 +221,121 @@ func TestServer_NotifyBroker_FileQueueSkippedWhenSubscribed(t *testing.T) {
 	ns, err := notify.ReadAll(srv.RuntimeDir())
 	require.NoError(t, err)
 	assert.Empty(t, ns, "file queue should be empty when broker has subscribers")
+}
+
+// TestServer_WithBroker_UsesInjectedBroker verifies that WithBroker injects
+// an externally-owned broker and the server publishes events to it.
+func TestServer_WithBroker_UsesInjectedBroker(t *testing.T) {
+	t.Parallel()
+
+	externalBroker := event.NewBroker[model.Event]()
+	defer externalBroker.Close()
+
+	mock := tmux.NewMockClient()
+	logger := log.New(&bytes.Buffer{}, "", 0)
+	tmpDir := t.TempDir()
+	cfg := server.Config{
+		Port:       0,
+		Token:      "test-token",
+		IDEDir:     filepath.Join(tmpDir, "ide"),
+		RuntimeDir: filepath.Join(tmpDir, "run"),
+	}
+
+	srv := server.New(cfg, mock, logger, server.WithBroker(externalBroker))
+	port, err := srv.Start(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { srv.Stop(context.Background()) })
+
+	// The server's broker should be the injected one.
+	assert.Same(t, externalBroker, srv.NotifyBroker())
+
+	// Subscribe and verify events arrive on the external broker.
+	sub := externalBroker.Subscribe(4)
+	defer sub.Cancel()
+
+	srv.State().SetConn("c1", &server.ConnState{PID: 1111, Window: "@1"})
+	body, _ := json.Marshal(map[string]any{
+		"pid":       1111,
+		"tool_name": "Bash",
+		"input":     `{"command":"test"}`,
+	})
+	resp := postNotify(t, port, body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	select {
+	case ev := <-sub.Ch():
+		require.NotNil(t, ev.Notification)
+		assert.Equal(t, "Bash", ev.Notification.ToolName)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for event on injected broker")
+	}
+}
+
+// TestServer_WithBroker_StopDoesNotCloseBroker verifies that stopping a server
+// with an injected broker does NOT close the broker, allowing GUI subscriptions
+// to survive server restarts.
+func TestServer_WithBroker_StopDoesNotCloseBroker(t *testing.T) {
+	t.Parallel()
+
+	externalBroker := event.NewBroker[model.Event]()
+	defer externalBroker.Close()
+
+	mock := tmux.NewMockClient()
+	logger := log.New(&bytes.Buffer{}, "", 0)
+	tmpDir := t.TempDir()
+	cfg := server.Config{
+		Port:       0,
+		Token:      "test-token",
+		IDEDir:     filepath.Join(tmpDir, "ide"),
+		RuntimeDir: filepath.Join(tmpDir, "run"),
+	}
+
+	srv := server.New(cfg, mock, logger, server.WithBroker(externalBroker))
+	_, err := srv.Start(context.Background())
+	require.NoError(t, err)
+
+	// Subscribe before stopping the server.
+	sub := externalBroker.Subscribe(4)
+	defer sub.Cancel()
+
+	// Stop the server — broker must remain open.
+	require.NoError(t, srv.Stop(context.Background()))
+
+	// Verify the broker is still open by publishing an event.
+	// If Close() had been called, Publish() would silently drop it.
+	externalBroker.Publish(model.Event{StopNotification: &model.StopNotification{
+		Window:     "@1",
+		StopReason: "end_turn",
+	}})
+
+	select {
+	case ev := <-sub.Ch():
+		require.NotNil(t, ev.StopNotification, "broker must still deliver events after server stop")
+	case <-time.After(2 * time.Second):
+		t.Fatal("broker was closed by server.Stop — events not delivered")
+	}
+}
+
+// TestServer_DefaultBroker_StopClosesBroker verifies that a server without
+// WithBroker closes its own broker on Stop (backwards compatibility).
+func TestServer_DefaultBroker_StopClosesBroker(t *testing.T) {
+	t.Parallel()
+	srv, _, _ := startTestServer(t)
+
+	broker := srv.NotifyBroker()
+	sub := broker.Subscribe(4)
+	defer sub.Cancel()
+
+	require.NoError(t, srv.Stop(context.Background()))
+
+	// Channel must be closed.
+	select {
+	case _, ok := <-sub.Ch():
+		assert.False(t, ok, "default broker channel should be closed after Stop")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out — broker channel was not closed after Stop")
+	}
 }
 
 // TestServer_NotifyBroker_FileQueueWrittenWhenNoSubscriber verifies that

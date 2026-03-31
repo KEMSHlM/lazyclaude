@@ -88,10 +88,15 @@ func newRootCmd() *cobra.Command {
 			// Start the MCP server: prefer in-process so the broker can be wired
 			// directly to the GUI for immediate popup delivery (no 100ms poll delay).
 			// Falls back to a subprocess if the server is already running as a daemon.
-			var notifyBroker *event.Broker[model.Event]
-			inProcessSrv := tryStartInProcessServer(paths, tmuxClient, tmuxSocket, logger)
+			//
+			// The broker is created here (not inside the server) so it outlives
+			// server restarts. GUI subscriptions reference this single broker
+			// instance throughout the TUI lifetime.
+			notifyBroker := event.NewBroker[model.Event]()
+			lc.Register("notify-broker", func() { notifyBroker.Close() })
+
+			inProcessSrv := tryStartInProcessServer(paths, tmuxClient, tmuxSocket, logger, notifyBroker)
 			if inProcessSrv != nil {
-				notifyBroker = inProcessSrv.NotifyBroker()
 				inProcessSrv.SetSessionLister(&sessionListerAdapter{mgr: mgr})
 				inProcessSrv.SetSessionCreator(&sessionCreatorAdapter{mgr: mgr})
 				lc.Register("mcp-server", func() {
@@ -166,9 +171,10 @@ func newRootCmd() *cobra.Command {
 
 // tryStartInProcessServer attempts to start the MCP server inside the current
 // process so the notify broker can be wired directly to the GUI for immediate
-// event delivery. Returns the server if started successfully, or nil when an
+// event delivery. The caller-owned broker is injected so it outlives server
+// restarts. Returns the server if started successfully, or nil when an
 // external server is already alive (the caller should fall back to ensureMCPServer).
-func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, tmuxSocket string, logger *slog.Logger) *server.Server {
+func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, tmuxSocket string, logger *slog.Logger, broker *event.Broker[model.Event]) *server.Server {
 	// If an external daemon is already alive, stop it so we can start an
 	// in-process server with a wired notify broker.
 	if server.IsAlive(paths.PortFile()) {
@@ -199,7 +205,7 @@ func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, tmuxSoc
 		RuntimeDir: paths.RuntimeDir,
 	}
 
-	srv := server.New(cfg, tmuxClient, srvLogger)
+	srv := server.New(cfg, tmuxClient, srvLogger, server.WithBroker(broker))
 	port, err := srv.Start(context.Background())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: start in-process MCP server: %v\n", err)

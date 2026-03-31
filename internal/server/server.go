@@ -41,6 +41,7 @@ type Server struct {
 	tmux           tmux.Client
 	log            *log.Logger
 	notifyBroker   *event.Broker[model.Event]
+	ownsBroker     bool // true when the server created the broker (and must close it)
 	sessionLister  SessionLister
 	sessionCreator SessionCreator
 
@@ -51,21 +52,44 @@ type Server struct {
 	shutdown bool
 }
 
+// ServerOption configures optional Server behaviour.
+type ServerOption func(*Server)
+
+// WithBroker injects an externally-owned event broker.
+// The server will publish events to it but will NOT close it on Stop().
+// This allows the broker to outlive server restarts so that GUI
+// subscriptions remain valid across restart cycles.
+func WithBroker(b *event.Broker[model.Event]) ServerOption {
+	return func(s *Server) {
+		s.notifyBroker = b
+		s.ownsBroker = false
+	}
+}
+
 // New creates a new Server.
-func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger) *Server {
+func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger, opts ...ServerOption) *Server {
 	state := NewState()
 	handler := NewHandler(state, tmuxClient, logger)
 	handler.SetRuntimeDir(cfg.RuntimeDir)
 	lockMgr := NewLockManager(cfg.IDEDir)
 
 	s := &Server{
-		config:       cfg,
-		state:        state,
-		handler:      handler,
-		lock:         lockMgr,
-		tmux:         tmuxClient,
-		log:          logger,
-		notifyBroker: event.NewBroker[model.Event](),
+		config:  cfg,
+		state:   state,
+		handler: handler,
+		lock:    lockMgr,
+		tmux:    tmuxClient,
+		log:     logger,
+	}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	// Create a default broker if no external one was injected.
+	if s.notifyBroker == nil {
+		s.notifyBroker = event.NewBroker[model.Event]()
+		s.ownsBroker = true
 	}
 
 	mux := http.NewServeMux()
@@ -135,8 +159,12 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.log.Printf("warning: remove lock: %v", err)
 	}
 
-	// Close the notify broker to release any waiting subscribers.
-	s.notifyBroker.Close()
+	// Close the notify broker only when the server owns it.
+	// When an external broker is injected (WithBroker), it outlives the
+	// server so that GUI subscriptions survive server restarts.
+	if s.ownsBroker {
+		s.notifyBroker.Close()
+	}
 
 	return s.httpSrv.Shutdown(ctx)
 }
@@ -174,9 +202,9 @@ func (s *Server) SetSessionCreator(sc SessionCreator) {
 }
 
 // NotifyBroker returns the event broker that publishes model.Event when a
-// tool permission request arrives via /notify. The broker is created with the
-// server and lives for the server's lifetime; call broker.Close() (or Stop()
-// the server) to release subscribers.
+// tool permission request arrives via /notify. When no WithBroker option is
+// used, the broker is created with the server and closed on Stop(). When an
+// external broker is injected via WithBroker, it outlives the server.
 func (s *Server) NotifyBroker() *event.Broker[model.Event] {
 	return s.notifyBroker
 }
