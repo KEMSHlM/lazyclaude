@@ -5,8 +5,8 @@ import "time"
 // Event is published on the event broker when a tool permission request arrives,
 // or when a session lifecycle event (stop/start) occurs.
 type Event struct {
-	Notification         *ToolNotification
-	StopNotification     *StopNotification
+	Notification             *ToolNotification
+	StopNotification         *StopNotification
 	SessionStartNotification *SessionStartNotification
 }
 

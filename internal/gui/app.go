@@ -110,7 +110,10 @@ type App struct {
 	logCache           logFileCache                 // cached server log file content
 	logRender          logRenderCache               // tracks last rendered log state
 	previewByScope     map[keymap.Scope]func(*gocui.View, int, int) // scope -> preview renderer
-	windowActivity     map[string]string            // tmux window -> activity ("finished", "error")
+	// windowActivity tracks lifecycle state per tmux window ("finished", "error").
+	// All reads/writes happen on the gocui event loop goroutine (gui.Update callbacks
+	// and layout), so no mutex is needed.
+	windowActivity     map[string]string
 }
 
 
