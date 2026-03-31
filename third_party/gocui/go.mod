@@ -2,7 +2,7 @@ module github.com/jesseduffield/gocui
 
 go 1.25
 
-replace github.com/gdamore/tcell/v2 => ../third_party_tcell
+replace github.com/gdamore/tcell/v2 => ../tcell
 
 require (
 	github.com/gdamore/tcell/v2 v2.13.5

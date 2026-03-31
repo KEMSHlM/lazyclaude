@@ -2,9 +2,9 @@ module github.com/KEMSHlM/lazyclaude
 
 go 1.25
 
-replace github.com/jesseduffield/gocui => ./third_party_gocui
+replace github.com/jesseduffield/gocui => ./third_party/gocui
 
-replace github.com/gdamore/tcell/v2 => ./third_party_tcell
+replace github.com/gdamore/tcell/v2 => ./third_party/tcell
 
 require (
 	github.com/ActiveState/termtest v0.7.2

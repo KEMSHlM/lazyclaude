@@ -93,10 +93,10 @@ lazyclaude は **Ctrl+\\** を normal mode 切替に使用。
 - ESC[200~ フォールバック検出: tmux display-popup で tcell が EventPaste を送れない場合の対策
 - inputEditor はペースト状態マシンを持たない。`OnPasteContent` callback 経由で `forwardPaste` を呼ぶだけ
 
-### third_party_gocui / third_party_tcell
+### third_party/gocui, third_party/tcell
 
-- `third_party_gocui`: jesseduffield/gocui のフォーク。paste 集約、rawEvents パイプライン等を追加
-- `third_party_tcell`: gdamore/tcell/v2 のフォーク。最小限のビルドファイルのみ。パッチ内容は `LAZYCLAUDE_PATCHES.md` に記録
+- `third_party/gocui`: jesseduffield/gocui のフォーク。paste 集約、rawEvents パイプライン等を追加
+- `third_party/tcell`: gdamore/tcell/v2 のフォーク。最小限のビルドファイルのみ。パッチ内容は `LAZYCLAUDE_PATCHES.md` に記録
 - `go.mod` の `replace` directive でローカル参照
 
 ## tmux アーキテクチャ
