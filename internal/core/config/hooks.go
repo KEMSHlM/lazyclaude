@@ -51,6 +51,10 @@ const stopHookCommand = `node -e "let d='';process.stdin.on('data',c=>d+=c);proc
 // Fires when a Claude Code session begins. Posts session start event to the server.
 const sessionStartHookCommand = `node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const i=JSON.parse(d);const http=require('http');` + resolveServerJS + `if(!srvPort)return;const body=JSON.stringify({pid:process.ppid,session_id:i.session_id||''});const req=http.request({hostname:'127.0.0.1',port:srvPort,path:'/session-start',method:'POST',timeout:300,headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'X-Claude-Code-Ide-Authorization':srvToken}});req.on('error',()=>{});req.on('timeout',()=>{req.destroy()});req.write(body);req.end();}catch{}})"` //nolint:lll
 
+// userPromptSubmitHookCommand is the node one-liner for UserPromptSubmit hooks.
+// Fires when the user submits a prompt. Transitions idle/finished -> running.
+const userPromptSubmitHookCommand = `node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const i=JSON.parse(d);const http=require('http');` + resolveServerJS + `if(!srvPort)return;const body=JSON.stringify({pid:process.ppid,session_id:i.session_id||''});const req=http.request({hostname:'127.0.0.1',port:srvPort,path:'/prompt-submit',method:'POST',timeout:300,headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'X-Claude-Code-Ide-Authorization':srvToken}});req.on('error',()=>{});req.on('timeout',()=>{req.destroy()});req.write(body);req.end();}catch{}})"` //nolint:lll
+
 // ReadClaudeSettings reads ~/.claude/settings.json.
 // Returns empty map if file does not exist.
 func ReadClaudeSettings(path string) (map[string]any, error) {
@@ -157,8 +161,9 @@ func SetLazyClaudeHooks(settings map[string]any) map[string]any {
 }
 
 // BuildHooksSettingsJSON returns a JSON string suitable for the `claude --settings`
-// flag. It contains all lazyclaude hooks (PreToolUse, Notification, Stop, SessionStart)
-// so they are injected at session startup without modifying ~/.claude/settings.json.
+// flag. It contains all lazyclaude hooks (PreToolUse, Notification, Stop, SessionStart,
+// UserPromptSubmit) so they are injected at session startup without modifying
+// ~/.claude/settings.json.
 func BuildHooksSettingsJSON() (string, error) {
 	settings := map[string]any{
 		"hooks": buildHooksMap(),
@@ -217,10 +222,11 @@ func buildHooksMap() map[string]any {
 		}
 	}
 	return map[string]any{
-		"PreToolUse":   hookEntry(preToolUseHookCommand),
-		"Notification": hookEntry(notificationHookCommand),
-		"Stop":         hookEntry(stopHookCommand),
-		"SessionStart": hookEntry(sessionStartHookCommand),
+		"PreToolUse":        hookEntry(preToolUseHookCommand),
+		"Notification":      hookEntry(notificationHookCommand),
+		"Stop":              hookEntry(stopHookCommand),
+		"SessionStart":      hookEntry(sessionStartHookCommand),
+		"UserPromptSubmit":  hookEntry(userPromptSubmitHookCommand),
 	}
 }
 

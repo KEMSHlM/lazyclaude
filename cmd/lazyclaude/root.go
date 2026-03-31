@@ -321,7 +321,7 @@ type sessionAdapter struct {
 
 	// windowActivity provides window->activity mapping from the App layer.
 	// Set via SetWindowActivitySource after the App is wired.
-	windowActivityFn func() map[string]string
+	windowActivityFn func() map[string]gui.WindowActivityEntry
 }
 
 // RefreshPendingFrom caches the given notifications for badge rendering.
@@ -342,7 +342,7 @@ func (a *sessionAdapter) Projects() []gui.ProjectItem {
 	return buildProjectItems(projects, a.cachedPending, a.getWindowActivity())
 }
 
-func (a *sessionAdapter) getWindowActivity() map[string]string {
+func (a *sessionAdapter) getWindowActivity() map[string]gui.WindowActivityEntry {
 	if a.windowActivityFn != nil {
 		return a.windowActivityFn()
 	}
@@ -363,7 +363,7 @@ func pendingWindowSet(notifications []*model.ToolNotification) map[string]bool {
 }
 
 // buildProjectItems converts session.Project slice to gui.ProjectItem slice.
-func buildProjectItems(projects []session.Project, pending map[string]bool, windowActivity map[string]string) []gui.ProjectItem {
+func buildProjectItems(projects []session.Project, pending map[string]bool, windowActivity map[string]gui.WindowActivityEntry) []gui.ProjectItem {
 	items := make([]gui.ProjectItem, len(projects))
 	for i, p := range projects {
 		var pm *gui.SessionItem
@@ -388,17 +388,24 @@ func buildProjectItems(projects []session.Project, pending map[string]bool, wind
 }
 
 // sessionToItem converts a single session.Session to gui.SessionItem.
-func sessionToItem(s session.Session, pending map[string]bool, windowActivity map[string]string) gui.SessionItem {
-	activity := ""
-	if s.Status == session.StatusRunning && pending[s.TmuxWindow] {
-		activity = "pending"
-	}
-	// Stop/SessionStart lifecycle activity (lower priority than pending).
-	if activity == "" && s.Status == session.StatusRunning {
-		if wa := windowActivity[s.TmuxWindow]; wa != "" {
-			activity = wa
+func sessionToItem(s session.Session, pending map[string]bool, windowActivity map[string]gui.WindowActivityEntry) gui.SessionItem {
+	activity := model.ActivityUnknown
+	toolName := ""
+
+	// Priority 1: window activity from broker events (NeedsInput, Running, Idle, Error).
+	if s.Status == session.StatusRunning {
+		if wa, ok := windowActivity[s.TmuxWindow]; ok {
+			activity = wa.State
+			toolName = wa.ToolName
 		}
 	}
+
+	// Priority 2: pending permission popup overrides to NeedsInput
+	// (file-based polling fallback for when broker is not connected).
+	if s.Status == session.StatusRunning && pending[s.TmuxWindow] {
+		activity = model.ActivityNeedsInput
+	}
+
 	return gui.SessionItem{
 		ID:         s.ID,
 		Name:       s.Name,
@@ -408,12 +415,13 @@ func sessionToItem(s session.Session, pending map[string]bool, windowActivity ma
 		Flags:      s.Flags,
 		TmuxWindow: s.TmuxWindow,
 		Activity:   activity,
+		ToolName:   toolName,
 		Role:       string(s.Role),
 	}
 }
 
 // buildSessionItems converts session.Session slice to gui.SessionItem slice.
-func buildSessionItems(sessions []session.Session, pending map[string]bool, windowActivity map[string]string) []gui.SessionItem {
+func buildSessionItems(sessions []session.Session, pending map[string]bool, windowActivity map[string]gui.WindowActivityEntry) []gui.SessionItem {
 	items := make([]gui.SessionItem, len(sessions))
 	for i, s := range sessions {
 		items[i] = sessionToItem(s, pending, windowActivity)

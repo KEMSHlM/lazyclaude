@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
 	"github.com/KEMSHlM/lazyclaude/internal/session"
@@ -19,24 +20,35 @@ const serverLogLines = 30
 
 // sessionStatusIcon returns the status icon for a session item.
 func sessionStatusIcon(item *SessionItem) string {
-	switch {
-	case item.Status == "Dead":
+	// tmux-level status takes priority for non-running states.
+	switch item.Status {
+	case "Dead":
 		return " " + presentation.IconDead
-	case item.Status == "Orphan":
+	case "Orphan":
 		return " " + presentation.IconOrphan
-	case item.Activity == "pending":
-		return " " + presentation.IconPending
-	case item.Activity == "finished":
-		return " " + presentation.IconFinished
-	case item.Activity == "error":
-		return " " + presentation.IconError
-	case item.Status == "Running":
-		return " " + presentation.IconRunning
-	case item.Status == "Detached":
+	case "Detached":
 		return " " + presentation.IconDetached
-	default:
-		return ""
 	}
+
+	// For running sessions, use the 5-stage activity state.
+	switch item.Activity {
+	case model.ActivityRunning:
+		return " " + presentation.IconRunning
+	case model.ActivityNeedsInput:
+		return " " + presentation.IconNeedsInput
+	case model.ActivityIdle:
+		return " " + presentation.IconIdle
+	case model.ActivityError:
+		return " " + presentation.IconError
+	case model.ActivityDead:
+		return " " + presentation.IconDead
+	}
+
+	// Fallback: running session with no activity info yet.
+	if item.Status == "Running" {
+		return " " + presentation.IconRunning
+	}
+	return ""
 }
 
 // sessionDisplayName returns the decorated name for a session item.

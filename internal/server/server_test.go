@@ -526,3 +526,75 @@ func TestServer_SessionStart_PublishesBrokerEvent(t *testing.T) {
 		t.Fatal("expected session-start event on broker")
 	}
 }
+
+func TestServer_PromptSubmit_POST(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+
+	srv.State().SetConn("c1", &server.ConnState{PID: 7777, Window: "@10"})
+
+	body, _ := json.Marshal(map[string]any{
+		"pid":        7777,
+		"session_id": "sess-prompt",
+	})
+	resp := postEndpoint(t, port, "/prompt-submit", body)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	assert.Equal(t, "ok", result["status"])
+}
+
+func TestServer_PromptSubmit_Unauthorized(t *testing.T) {
+	t.Parallel()
+	_, port, _ := startTestServer(t)
+
+	body, _ := json.Marshal(map[string]any{"pid": 7777})
+	req, _ := http.NewRequest(http.MethodPost,
+		fmt.Sprintf("http://127.0.0.1:%d/prompt-submit", port),
+		bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Auth-Token", "wrong-token")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
+func TestServer_PromptSubmit_MethodNotAllowed(t *testing.T) {
+	t.Parallel()
+	_, port, _ := startTestServer(t)
+
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/prompt-submit", port))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+}
+
+func TestServer_PromptSubmit_PublishesBrokerEvent(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+
+	srv.State().SetConn("c1", &server.ConnState{PID: 8888, Window: "@12"})
+
+	sub := srv.NotifyBroker().Subscribe(8)
+	defer sub.Cancel()
+
+	body, _ := json.Marshal(map[string]any{
+		"pid":        8888,
+		"session_id": "sess-ps",
+	})
+	resp := postEndpoint(t, port, "/prompt-submit", body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	select {
+	case ev := <-sub.Ch():
+		require.NotNil(t, ev.PromptSubmitNotification)
+		assert.Equal(t, "@12", ev.PromptSubmitNotification.Window)
+		assert.Equal(t, "sess-ps", ev.PromptSubmitNotification.SessionID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected prompt-submit event on broker")
+	}
+}

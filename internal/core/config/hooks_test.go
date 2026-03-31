@@ -187,7 +187,7 @@ func TestBuildHooksSettingsJSON(t *testing.T) {
 	hooks, ok := settings["hooks"].(map[string]any)
 	require.True(t, ok, "should have hooks key")
 
-	for _, hookType := range []string{"PreToolUse", "Notification", "Stop", "SessionStart"} {
+	for _, hookType := range []string{"PreToolUse", "Notification", "Stop", "SessionStart", "UserPromptSubmit"} {
 		assert.Contains(t, hooks, hookType, "should contain %s hook", hookType)
 		entries, ok := hooks[hookType].([]any)
 		require.True(t, ok, "%s should be an array", hookType)
@@ -228,6 +228,14 @@ func TestBuildHooksSettingsJSON_SessionStartHookPostsToSessionStartEndpoint(t *t
 	assert.True(t, strings.Contains(jsonStr, "/session-start"), "SessionStart hook should POST to /session-start endpoint")
 }
 
+func TestBuildHooksSettingsJSON_UserPromptSubmitHookPostsToPromptSubmitEndpoint(t *testing.T) {
+	t.Parallel()
+	jsonStr, err := config.BuildHooksSettingsJSON()
+	require.NoError(t, err)
+
+	assert.True(t, strings.Contains(jsonStr, "/prompt-submit"), "UserPromptSubmit hook should POST to /prompt-submit endpoint")
+}
+
 func TestWriteHooksSettingsFile(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
@@ -257,6 +265,7 @@ func TestWriteHooksSettingsFile(t *testing.T) {
 	assert.Contains(t, hooks, "Notification")
 	assert.Contains(t, hooks, "Stop")
 	assert.Contains(t, hooks, "SessionStart")
+	assert.Contains(t, hooks, "UserPromptSubmit")
 }
 
 func TestBuildHooksSettingsJSON_UsesEnvVarResolution(t *testing.T) {

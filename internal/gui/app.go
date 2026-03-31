@@ -73,8 +73,9 @@ type SessionItem struct {
 	Status     string
 	Flags      []string
 	TmuxWindow string
-	Activity   string // "pending", "finished", "error", or "" (empty = normal)
-	Role       string // "pm", "worker", or "" (empty = regular session)
+	Activity   model.ActivityState // 5-stage activity state
+	ToolName   string              // last tool name (for context info)
+	Role       string              // "pm", "worker", or "" (empty = regular session)
 }
 
 // PreviewResult holds captured pane content and cursor position.
@@ -113,10 +114,10 @@ type App struct {
 	logCache           logFileCache                 // cached server log file content
 	logRender          logRenderCache               // tracks last rendered log state
 	previewByScope     map[keymap.Scope]func(*gocui.View, int, int) // scope -> preview renderer
-	// windowActivity tracks lifecycle state per tmux window ("finished", "error").
+	// windowActivity tracks the 5-stage activity state per tmux window.
 	// All reads/writes happen on the gocui event loop goroutine (gui.Update callbacks
 	// and layout), so no mutex is needed.
-	windowActivity     map[string]string
+	windowActivity map[string]WindowActivityEntry
 }
 
 
@@ -133,7 +134,7 @@ func newApp(mode AppMode, g *gocui.Gui, enableMouse bool) (*App, error) {
 		pluginState: NewPluginState(),
 		mcpState:    NewMCPState(),
 		panelTabs:      make(map[string]int),
-		windowActivity: make(map[string]string),
+		windowActivity: make(map[string]WindowActivityEntry),
 	}
 	app.scroll = NewScrollState()
 	app.fullscreen = NewFullScreenState(app.preview)
@@ -246,22 +247,50 @@ func (a *App) Run() error {
 					continue
 				}
 				if ev.Notification != nil {
+					n := ev.Notification
 					a.gui.Update(func(g *gocui.Gui) error {
-						a.showToolPopup(ev.Notification)
+						a.setWindowActivity(n.Window, WindowActivityEntry{
+							State:    model.ActivityNeedsInput,
+							ToolName: n.ToolName,
+						})
+						a.showToolPopup(n)
 						return nil
 					})
 				}
 				if ev.StopNotification != nil {
 					n := ev.StopNotification
 					a.gui.Update(func(g *gocui.Gui) error {
-						a.setWindowActivity(n.Window, stopReasonToActivity(n.StopReason))
+						a.setWindowActivity(n.Window, WindowActivityEntry{
+							State: stopReasonToActivity(n.StopReason),
+						})
 						return nil
 					})
 				}
 				if ev.SessionStartNotification != nil {
 					n := ev.SessionStartNotification
 					a.gui.Update(func(g *gocui.Gui) error {
-						a.clearWindowActivity(n.Window)
+						a.setWindowActivity(n.Window, WindowActivityEntry{
+							State: model.ActivityRunning,
+						})
+						return nil
+					})
+				}
+				if ev.PromptSubmitNotification != nil {
+					n := ev.PromptSubmitNotification
+					a.gui.Update(func(g *gocui.Gui) error {
+						a.setWindowActivity(n.Window, WindowActivityEntry{
+							State: model.ActivityRunning,
+						})
+						return nil
+					})
+				}
+				if ev.ActivityNotification != nil {
+					n := ev.ActivityNotification
+					a.gui.Update(func(g *gocui.Gui) error {
+						a.setWindowActivity(n.Window, WindowActivityEntry{
+							State:    n.State,
+							ToolName: n.ToolName,
+						})
 						return nil
 					})
 				}
@@ -350,6 +379,12 @@ func (a *App) SetNotifyBroker(broker *event.Broker[model.Event]) {
 	a.notify.SetBroker(broker)
 }
 
+// WindowActivityEntry stores activity state and context for a tmux window.
+type WindowActivityEntry struct {
+	State    model.ActivityState
+	ToolName string // last tool name (for running context)
+}
+
 // keyCmd is a queued key forwarding command.
 type keyCmd struct {
 	target  string
@@ -364,19 +399,18 @@ func (a *App) NotifyOutput() {
 	a.notify.NotifyOutput()
 }
 
-// WindowActivity returns the activity string for a tmux window.
-// Returns "" if no activity is set.
-func (a *App) WindowActivity(window string) string {
-	return a.windowActivity[window]
+// WindowActivity returns the activity state for a tmux window.
+func (a *App) WindowActivity(window string) model.ActivityState {
+	return a.windowActivity[window].State
 }
 
 // WindowActivityMap returns a shallow copy of the window activity map.
 // Used by the session adapter to merge lifecycle state into SessionItem.Activity.
-func (a *App) WindowActivityMap() map[string]string {
+func (a *App) WindowActivityMap() map[string]WindowActivityEntry {
 	if len(a.windowActivity) == 0 {
 		return nil
 	}
-	cp := make(map[string]string, len(a.windowActivity))
+	cp := make(map[string]WindowActivityEntry, len(a.windowActivity))
 	for k, v := range a.windowActivity {
 		cp[k] = v
 	}
@@ -385,11 +419,11 @@ func (a *App) WindowActivityMap() map[string]string {
 
 // setWindowActivity records a lifecycle activity for a tmux window.
 // Called from the broker event handler on the gocui goroutine.
-func (a *App) setWindowActivity(window, activity string) {
+func (a *App) setWindowActivity(window string, entry WindowActivityEntry) {
 	if window == "" {
 		return
 	}
-	a.windowActivity[window] = activity
+	a.windowActivity[window] = entry
 }
 
 // clearWindowActivity removes the lifecycle activity for a tmux window.
@@ -401,12 +435,28 @@ func (a *App) clearWindowActivity(window string) {
 	delete(a.windowActivity, window)
 }
 
-// stopReasonToActivity converts a Claude Code stop_reason to an activity string.
-func stopReasonToActivity(reason string) string {
-	if reason == "error" {
-		return "error"
+// clearUnreadActivity clears the activity state for a window only if it is
+// in an "unread" state (Idle or Error). Running and NeedsInput are not cleared
+// because those represent active work that should remain visible.
+func (a *App) clearUnreadActivity(window string) {
+	if window == "" {
+		return
 	}
-	return "finished"
+	entry, ok := a.windowActivity[window]
+	if !ok {
+		return
+	}
+	if entry.State == model.ActivityIdle || entry.State == model.ActivityError {
+		delete(a.windowActivity, window)
+	}
+}
+
+// stopReasonToActivity converts a Claude Code stop_reason to an ActivityState.
+func stopReasonToActivity(reason string) model.ActivityState {
+	if reason == "error" {
+		return model.ActivityError
+	}
+	return model.ActivityIdle
 }
 
 // Gui returns the underlying gocui.Gui (for testing).

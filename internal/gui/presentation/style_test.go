@@ -7,28 +7,55 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestIconPending_ContainsDiamond(t *testing.T) {
+func TestIconNeedsInput_ContainsBang(t *testing.T) {
 	t.Parallel()
-	assert.Contains(t, presentation.IconPending, "◆", "IconPending should contain diamond character")
+	assert.Contains(t, presentation.IconNeedsInput, "!", "IconNeedsInput should contain bang character")
 }
 
-func TestIconPending_IsMagenta(t *testing.T) {
+func TestIconNeedsInput_IsMagenta(t *testing.T) {
 	t.Parallel()
-	// Magenta ANSI escape: \x1b[35m
-	assert.Contains(t, presentation.IconPending, "\x1b[35m", "IconPending should use magenta color")
+	assert.Contains(t, presentation.IconNeedsInput, "\x1b[35m", "IconNeedsInput should use magenta color")
 }
 
-func TestIconPending_ResetsColor(t *testing.T) {
+func TestIconNeedsInput_ResetsColor(t *testing.T) {
 	t.Parallel()
-	assert.Contains(t, presentation.IconPending, "\x1b[0m", "IconPending should reset color after diamond")
+	assert.Contains(t, presentation.IconNeedsInput, "\x1b[0m", "IconNeedsInput should reset color")
 }
 
-func TestIconPending_IsDistinctFromDetached(t *testing.T) {
+func TestIconNeedsInput_IsDistinctFromDetached(t *testing.T) {
 	t.Parallel()
-	// IconDetached is gray diamond, IconPending should be magenta diamond
-	// They share the diamond character but differ in color
-	assert.NotEqual(t, presentation.IconPending, presentation.IconDetached,
-		"IconPending and IconDetached should differ (different colors)")
+	assert.NotEqual(t, presentation.IconNeedsInput, presentation.IconDetached,
+		"IconNeedsInput and IconDetached should differ")
+}
+
+func TestIconIdle_ContainsCheckmark(t *testing.T) {
+	t.Parallel()
+	assert.Contains(t, presentation.IconIdle, "\xe2\x9c\x93", "IconIdle should contain checkmark")
+}
+
+func TestIconIdle_IsCyan(t *testing.T) {
+	t.Parallel()
+	assert.Contains(t, presentation.IconIdle, "\x1b[36m", "IconIdle should use cyan color")
+}
+
+func TestIconRunning_ContainsSpinner(t *testing.T) {
+	t.Parallel()
+	assert.Contains(t, presentation.IconRunning, "\xe2\x9f\xb3", "IconRunning should contain spinner character")
+}
+
+func TestIconRunning_IsGreen(t *testing.T) {
+	t.Parallel()
+	assert.Contains(t, presentation.IconRunning, "\x1b[32m", "IconRunning should use green color")
+}
+
+func TestIconError_ContainsCross(t *testing.T) {
+	t.Parallel()
+	assert.Contains(t, presentation.IconError, "\xe2\x9c\x97", "IconError should contain cross character")
+}
+
+func TestIconError_IsRed(t *testing.T) {
+	t.Parallel()
+	assert.Contains(t, presentation.IconError, "\x1b[31m", "IconError should use red color")
 }
 
 func TestIconPM_Exists(t *testing.T) {

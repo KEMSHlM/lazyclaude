@@ -9,6 +9,8 @@ func (a *App) enterFullScreen(sessionID string) {
 	for i, node := range a.treeNodes() {
 		if node.Kind == SessionNode && node.Session != nil && node.Session.ID == sessionID {
 			a.cursor = i
+			// Clear unread badge when entering fullscreen for this session.
+			a.clearUnreadActivity(node.Session.TmuxWindow)
 			break
 		}
 	}

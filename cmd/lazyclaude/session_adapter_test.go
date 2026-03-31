@@ -69,7 +69,7 @@ func TestPendingWindowSet_UnknownWindowNotInSet(t *testing.T) {
 	assert.False(t, result["@99"])
 }
 
-// TestBuildSessionItems_RunningWithPending sets Activity to "pending"
+// TestBuildSessionItems_RunningWithPending sets Activity to NeedsInput
 func TestBuildSessionItems_RunningWithPending(t *testing.T) {
 	t.Parallel()
 	sessions := []session.Session{
@@ -79,10 +79,10 @@ func TestBuildSessionItems_RunningWithPending(t *testing.T) {
 
 	items := buildSessionItems(sessions, pending, nil)
 	assert.Len(t, items, 1)
-	assert.Equal(t, "pending", items[0].Activity)
+	assert.Equal(t, model.ActivityNeedsInput, items[0].Activity)
 }
 
-// TestBuildSessionItems_RunningWithoutPending has empty Activity
+// TestBuildSessionItems_RunningWithoutPending has unknown Activity
 func TestBuildSessionItems_RunningWithoutPending(t *testing.T) {
 	t.Parallel()
 	sessions := []session.Session{
@@ -92,7 +92,7 @@ func TestBuildSessionItems_RunningWithoutPending(t *testing.T) {
 
 	items := buildSessionItems(sessions, pending, nil)
 	assert.Len(t, items, 1)
-	assert.Equal(t, "", items[0].Activity, "non-pending running session should have empty Activity")
+	assert.Equal(t, model.ActivityUnknown, items[0].Activity, "non-pending running session should have unknown Activity")
 }
 
 // TestBuildSessionItems_DeadSession_NoPendingActivity
@@ -105,8 +105,7 @@ func TestBuildSessionItems_DeadSession_NoPendingActivity(t *testing.T) {
 
 	items := buildSessionItems(sessions, pending, nil)
 	assert.Len(t, items, 1)
-	// Dead sessions should NOT be marked pending even if window matches
-	assert.Equal(t, "", items[0].Activity, "dead session should not be marked pending")
+	assert.Equal(t, model.ActivityUnknown, items[0].Activity, "dead session should not be marked pending")
 }
 
 // TestBuildSessionItems_OrphanSession_NoPendingActivity
@@ -119,7 +118,7 @@ func TestBuildSessionItems_OrphanSession_NoPendingActivity(t *testing.T) {
 
 	items := buildSessionItems(sessions, pending, nil)
 	assert.Len(t, items, 1)
-	assert.Equal(t, "", items[0].Activity, "orphan session should not be marked pending")
+	assert.Equal(t, model.ActivityUnknown, items[0].Activity, "orphan session should not be marked pending")
 }
 
 // TestBuildSessionItems_MixedSessions correctly categorizes all
@@ -134,9 +133,9 @@ func TestBuildSessionItems_MixedSessions(t *testing.T) {
 
 	items := buildSessionItems(sessions, pending, nil)
 	assert.Len(t, items, 3)
-	assert.Equal(t, "pending", items[0].Activity, "s1 running + window in pending set")
-	assert.Equal(t, "", items[1].Activity, "s2 running but window not in pending set")
-	assert.Equal(t, "", items[2].Activity, "s3 dead, should not be pending even if window matches")
+	assert.Equal(t, model.ActivityNeedsInput, items[0].Activity, "s1 running + window in pending set")
+	assert.Equal(t, model.ActivityUnknown, items[1].Activity, "s2 running but window not in pending set")
+	assert.Equal(t, model.ActivityUnknown, items[2].Activity, "s3 dead, should not be pending even if window matches")
 }
 
 // TestBuildSessionItems_EmptySessions returns empty slice
@@ -178,17 +177,17 @@ func TestBuildSessionItems_NilPendingMap(t *testing.T) {
 		{ID: "s1", Name: "app", Status: session.StatusRunning, TmuxWindow: "@1"},
 	}
 	items := buildSessionItems(sessions, nil, nil)
-	assert.Equal(t, "", items[0].Activity, "nil pending map should mean no session is pending")
+	assert.Equal(t, model.ActivityUnknown, items[0].Activity, "nil pending map should mean no session is pending")
 }
 
 // Verify SessionItem.Activity field exists and has the right type.
-func TestSessionItem_ActivityField_IsString(t *testing.T) {
+func TestSessionItem_ActivityField_IsActivityState(t *testing.T) {
 	t.Parallel()
-	item := gui.SessionItem{Activity: "pending"}
-	assert.Equal(t, "pending", item.Activity)
+	item := gui.SessionItem{Activity: model.ActivityNeedsInput}
+	assert.Equal(t, model.ActivityNeedsInput, item.Activity)
 
 	item2 := gui.SessionItem{}
-	assert.Equal(t, "", item2.Activity)
+	assert.Equal(t, model.ActivityUnknown, item2.Activity)
 }
 
 // TestBuildSessionItems_PMRole_IsPreserved maps session.RolePM to "pm"
@@ -409,30 +408,50 @@ func TestSessionInfo_HasStatusField(t *testing.T) {
 	assert.Equal(t, "Running", info.Status)
 }
 
-// TestBuildSessionItems_WindowActivity_Finished sets Activity to "finished"
-func TestBuildSessionItems_WindowActivity_Finished(t *testing.T) {
+// TestBuildSessionItems_WindowActivity_Idle sets Activity to ActivityIdle
+func TestBuildSessionItems_WindowActivity_Idle(t *testing.T) {
 	t.Parallel()
 	sessions := []session.Session{
 		{ID: "s1", Name: "done", Status: session.StatusRunning, TmuxWindow: "@1"},
 	}
-	windowActivity := map[string]string{"@1": "finished"}
+	windowActivity := map[string]gui.WindowActivityEntry{
+		"@1": {State: model.ActivityIdle},
+	}
 
 	items := buildSessionItems(sessions, nil, windowActivity)
 	require.Len(t, items, 1)
-	assert.Equal(t, "finished", items[0].Activity)
+	assert.Equal(t, model.ActivityIdle, items[0].Activity)
 }
 
-// TestBuildSessionItems_WindowActivity_Error sets Activity to "error"
+// TestBuildSessionItems_WindowActivity_Error sets Activity to ActivityError
 func TestBuildSessionItems_WindowActivity_Error(t *testing.T) {
 	t.Parallel()
 	sessions := []session.Session{
 		{ID: "s1", Name: "err", Status: session.StatusRunning, TmuxWindow: "@2"},
 	}
-	windowActivity := map[string]string{"@2": "error"}
+	windowActivity := map[string]gui.WindowActivityEntry{
+		"@2": {State: model.ActivityError},
+	}
 
 	items := buildSessionItems(sessions, nil, windowActivity)
 	require.Len(t, items, 1)
-	assert.Equal(t, "error", items[0].Activity)
+	assert.Equal(t, model.ActivityError, items[0].Activity)
+}
+
+// TestBuildSessionItems_WindowActivity_Running_WithToolName
+func TestBuildSessionItems_WindowActivity_Running_WithToolName(t *testing.T) {
+	t.Parallel()
+	sessions := []session.Session{
+		{ID: "s1", Name: "working", Status: session.StatusRunning, TmuxWindow: "@5"},
+	}
+	windowActivity := map[string]gui.WindowActivityEntry{
+		"@5": {State: model.ActivityRunning, ToolName: "Bash"},
+	}
+
+	items := buildSessionItems(sessions, nil, windowActivity)
+	require.Len(t, items, 1)
+	assert.Equal(t, model.ActivityRunning, items[0].Activity)
+	assert.Equal(t, "Bash", items[0].ToolName)
 }
 
 // TestBuildSessionItems_PendingOverridesWindowActivity
@@ -442,11 +461,13 @@ func TestBuildSessionItems_PendingOverridesWindowActivity(t *testing.T) {
 		{ID: "s1", Name: "both", Status: session.StatusRunning, TmuxWindow: "@3"},
 	}
 	pending := map[string]bool{"@3": true}
-	windowActivity := map[string]string{"@3": "finished"}
+	windowActivity := map[string]gui.WindowActivityEntry{
+		"@3": {State: model.ActivityIdle},
+	}
 
 	items := buildSessionItems(sessions, pending, windowActivity)
 	require.Len(t, items, 1)
-	assert.Equal(t, "pending", items[0].Activity, "pending should take priority over windowActivity")
+	assert.Equal(t, model.ActivityNeedsInput, items[0].Activity, "pending should take priority over windowActivity")
 }
 
 // TestBuildSessionItems_DeadSessionIgnoresWindowActivity
@@ -455,9 +476,11 @@ func TestBuildSessionItems_DeadSessionIgnoresWindowActivity(t *testing.T) {
 	sessions := []session.Session{
 		{ID: "s1", Name: "dead", Status: session.StatusDead, TmuxWindow: "@4"},
 	}
-	windowActivity := map[string]string{"@4": "finished"}
+	windowActivity := map[string]gui.WindowActivityEntry{
+		"@4": {State: model.ActivityIdle},
+	}
 
 	items := buildSessionItems(sessions, nil, windowActivity)
 	require.Len(t, items, 1)
-	assert.Equal(t, "", items[0].Activity, "dead session should not show windowActivity")
+	assert.Equal(t, model.ActivityUnknown, items[0].Activity, "dead session should not show windowActivity")
 }

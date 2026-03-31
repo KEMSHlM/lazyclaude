@@ -72,6 +72,7 @@ func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger) *Server {
 	mux.HandleFunc("/notify", s.handleNotify)
 	mux.HandleFunc("/stop", s.handleStop)
 	mux.HandleFunc("/session-start", s.handleSessionStart)
+	mux.HandleFunc("/prompt-submit", s.handlePromptSubmit)
 	mux.HandleFunc("/msg/send", s.handleMsgSend)
 	mux.HandleFunc("/msg/create", s.handleMsgCreate)
 	mux.HandleFunc("/msg/sessions", s.handleMsgSessions)
@@ -321,6 +322,13 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 			Input:    req.toolInputString(),
 			CWD:      req.CWD,
 		})
+		// Also signal Running state with the tool name for sidebar display.
+		s.notifyBroker.Publish(model.Event{ActivityNotification: &model.ActivityNotification{
+			Window:    window,
+			State:     model.ActivityRunning,
+			ToolName:  req.ToolName,
+			Timestamp: time.Now(),
+		}})
 	default:
 		// Phase 2: Notification hook (permission_prompt) — trigger popup
 
@@ -527,6 +535,48 @@ func (s *Server) handleSessionStart(w http.ResponseWriter, r *http.Request) {
 		Timestamp: time.Now(),
 	}
 	s.notifyBroker.Publish(model.Event{SessionStartNotification: &n})
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
+}
+
+type promptSubmitRequest struct {
+	PID       int    `json:"pid"`
+	SessionID string `json:"session_id"`
+}
+
+func (s *Server) handlePromptSubmit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	token := extractAuthToken(r)
+	if subtle.ConstantTimeCompare([]byte(token), []byte(s.config.Token)) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var req promptSubmitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	window := s.resolveNotifyWindow(r.Context(), req.PID)
+	if window == "" {
+		window = s.state.LastPendingWindow()
+	}
+
+	s.log.Printf("prompt-submit: pid=%d window=%s", req.PID, window)
+
+	n := model.PromptSubmitNotification{
+		Window:    window,
+		SessionID: req.SessionID,
+		Timestamp: time.Now(),
+	}
+	s.notifyBroker.Publish(model.Event{PromptSubmitNotification: &n})
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck

@@ -12,7 +12,8 @@ const (
 	FgRed    = "\x1b[31m"
 	FgGreen  = "\x1b[32m"
 	FgYellow = "\x1b[33m"
-	FgCyan   = "\x1b[36m"
+	FgCyan    = "\x1b[36m"
+	FgMagenta = "\x1b[35m"
 
 	// 256-color foreground (for finer control)
 	FgPurple  = "\x1b[38;5;141m" // soft purple (crush-inspired primary)
@@ -20,17 +21,22 @@ const (
 	FgDimGray = "\x1b[38;5;242m" // dim gray for muted text
 )
 
-// Unicode icons for status indicators (crush-inspired).
+// Unicode icons for status indicators.
+// 5-stage activity model: Running, NeedsInput, Idle, Error, Dead.
 const (
-	IconRunning  = "\x1b[32m●\x1b[0m" // green filled circle
-	IconDead     = "\x1b[31m×\x1b[0m" // red cross
-	IconOrphan   = "\x1b[33m○\x1b[0m" // yellow empty circle
-	IconDetached = "\x1b[90m◆\x1b[0m" // gray diamond
-	IconPending  = "\x1b[35m◆\x1b[0m" // magenta diamond (choice waiting)
-	IconFinished = "\x1b[36m●\x1b[0m" // cyan filled circle (turn completed)
-	IconError    = "\x1b[31m!\x1b[0m" // red exclamation (error stop)
-	IconUnknown  = "\x1b[90m?\x1b[0m" // gray question mark
-	IconSep      = "│"
+	IconRunning    = "\x1b[32m⟳\x1b[0m"  // green spinner (Claude is working)
+	IconNeedsInput = "\x1b[35m!\x1b[0m"  // magenta bang (waiting for approval)
+	IconIdle       = "\x1b[36m✓\x1b[0m"  // cyan checkmark (turn complete)
+	IconError      = "\x1b[31m✗\x1b[0m"  // red cross (error/interrupt)
+	IconDead       = "\x1b[90m×\x1b[0m"  // dim cross (process exited)
+	IconOrphan     = "\x1b[33m○\x1b[0m"  // yellow empty circle
+	IconDetached   = "\x1b[90m◆\x1b[0m"  // gray diamond
+	IconUnknown    = "\x1b[90m?\x1b[0m"  // gray question mark
+	IconSep        = "│"
+
+	// Legacy aliases for backward compatibility with tests.
+	IconPending  = IconNeedsInput
+	IconFinished = IconIdle
 	IconWorktree        = "\x1b[38;5;214m[W]\x1b[0m"  // orange [W] for worktree sessions
 	IconPM              = "\x1b[38;5;141m[PM]\x1b[0m" // purple [PM] for PM sessions
 	IconProjectExpanded = "\x1b[1m\xe2\x96\xbc\x1b[0m"  // bold ▼ for expanded project

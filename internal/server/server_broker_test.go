@@ -61,9 +61,9 @@ func TestServer_NotifyBroker_PublishesOnPermissionPrompt(t *testing.T) {
 	}
 }
 
-// TestServer_NotifyBroker_NoPublishOnToolInfo verifies that the broker does NOT publish
-// an event when the request type is "tool_info" (phase 1 — pre-tool-use only).
-func TestServer_NotifyBroker_NoPublishOnToolInfo(t *testing.T) {
+// TestServer_NotifyBroker_ToolInfo_PublishesActivityRunning verifies that tool_info
+// publishes an ActivityNotification with Running state (for sidebar status update).
+func TestServer_NotifyBroker_ToolInfo_PublishesActivityRunning(t *testing.T) {
 	t.Parallel()
 	srv, port, _ := startTestServer(t)
 	srv.State().SetConn("c1", &server.ConnState{PID: 5555, Window: "@8"})
@@ -82,17 +82,23 @@ func TestServer_NotifyBroker_NoPublishOnToolInfo(t *testing.T) {
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// The broker must NOT receive an event.
+	// Should receive an ActivityNotification with Running state.
 	select {
 	case ev := <-sub.Ch():
-		t.Fatalf("unexpected event on tool_info: %+v", ev)
-	case <-time.After(100 * time.Millisecond):
-		// pass — no event expected
+		require.NotNil(t, ev.ActivityNotification, "tool_info should publish ActivityNotification")
+		assert.Equal(t, model.ActivityRunning, ev.ActivityNotification.State)
+		assert.Equal(t, "Write", ev.ActivityNotification.ToolName)
+		assert.Equal(t, "@8", ev.ActivityNotification.Window)
+		// ToolNotification should NOT be set.
+		assert.Nil(t, ev.Notification, "tool_info should not publish ToolNotification")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for activity event on tool_info")
 	}
 }
 
 // TestServer_NotifyBroker_TwoPhase_PublishesAfterPermission verifies the two-phase flow:
-// tool_info then permission_prompt produces exactly one event with the stored tool data.
+// tool_info publishes ActivityNotification (running), then permission_prompt publishes
+// ToolNotification with the stored tool data.
 func TestServer_NotifyBroker_TwoPhase_PublishesAfterPermission(t *testing.T) {
 	t.Parallel()
 	srv, port, _ := startTestServer(t)
@@ -113,6 +119,15 @@ func TestServer_NotifyBroker_TwoPhase_PublishesAfterPermission(t *testing.T) {
 	resp1 := postNotify(t, port, body1)
 	resp1.Body.Close()
 	require.Equal(t, http.StatusOK, resp1.StatusCode)
+
+	// Drain the ActivityNotification from tool_info.
+	select {
+	case ev := <-sub.Ch():
+		require.NotNil(t, ev.ActivityNotification, "tool_info should publish ActivityNotification")
+		assert.Equal(t, model.ActivityRunning, ev.ActivityNotification.State)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for activity event from tool_info")
+	}
 
 	// Phase 2: permission_prompt
 	body2, _ := json.Marshal(map[string]any{
