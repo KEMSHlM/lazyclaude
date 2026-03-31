@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
@@ -882,10 +883,17 @@ func (a *App) ScrollModeToggleSelect() {
 func (a *App) ScrollModeCopy() {
 	text := a.scroll.CopyText()
 	if text != "" {
-		copyToClipboard(text)
+		copyToClipboard(stripANSI(text))
 	}
 	a.scroll.Exit()
 	a.preview.Invalidate()
+}
+
+// stripANSI removes ANSI escape sequences from text.
+var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func stripANSI(s string) string {
+	return ansiEscapeRe.ReplaceAllString(s, "")
 }
 
 // scrollViewHeight returns the inner height of the fullscreen view.
