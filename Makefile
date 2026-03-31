@@ -3,7 +3,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: build test test-unit test-vhs lint install clean
+.PHONY: build test test-unit test-vhs readme-gif lint install clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/lazyclaude
@@ -22,6 +22,14 @@ test-vhs:
 	$(COMPOSE) build
 	TAPE=$(TAPE) $(COMPOSE) run --rm vhs
 	$(COMPOSE) down
+
+## Generate README hero GIF and copy to docs/images/ (Docker required)
+readme-gif:
+	$(COMPOSE) build
+	TAPE=hero $(COMPOSE) run --rm vhs
+	$(COMPOSE) down
+	cp vis_e2e_tests/outputs/hero/hero.gif docs/images/hero.gif
+	@echo "Updated docs/images/hero.gif"
 
 lint:
 	golangci-lint run ./...

@@ -2,6 +2,10 @@
 
 A standalone TUI for managing Claude Code sessions, with tmux plugin support, SSH remote sessions, and live permission prompt notifications via a built-in MCP server.
 
+<p align="center">
+  <img src="docs/images/hero.gif" alt="lazyclaude demo" width="800">
+</p>
+
 ## Features
 
 - Interactive session manager with live preview of Claude Code output
@@ -188,7 +192,8 @@ Requires Docker and a Claude Code OAuth token:
 ```bash
 claude setup-token
 echo "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-..." > vis_e2e_tests/.env
-make test-vhs TAPE=notify_popup
+make test-vhs TAPE=smoke
+make readme-gif  # Generate docs/images/hero.gif
 ```
 
 Outputs: `vis_e2e_tests/outputs/{name}/` with `.gif`, `.txt`, `.log` files.
