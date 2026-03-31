@@ -425,6 +425,13 @@ func writeWorktreeLauncher(systemPrompt, userPrompt string) (string, error) {
 	// Self-delete the launcher script (already read by shell at this point).
 	sb.WriteString("rm -f \"$0\"\n")
 	sb.WriteString("exec claude")
+
+	// Inject hooks via --settings so ~/.claude/settings.json stays untouched.
+	if hooksJSON, err := config.BuildHooksSettingsJSON(); err == nil {
+		sb.WriteString(" --settings ")
+		sb.WriteString(shell.Quote(hooksJSON))
+	}
+
 	sb.WriteString(" --append-system-prompt ")
 	sb.WriteString(shell.Quote(systemPrompt))
 	if strings.TrimSpace(userPrompt) != "" {
@@ -535,6 +542,12 @@ func (m *Manager) readMCPInfo() (int, string, error) {
 
 func (m *Manager) buildClaudeCommand(sess Session) string {
 	claudeArgs := "claude"
+
+	// Inject hooks via --settings so ~/.claude/settings.json stays untouched.
+	if hooksJSON, err := config.BuildHooksSettingsJSON(); err == nil {
+		claudeArgs += " --settings " + shell.Quote(hooksJSON)
+	}
+
 	for _, f := range sess.Flags {
 		claudeArgs += " " + shell.Quote(f)
 	}

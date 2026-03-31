@@ -34,6 +34,14 @@ const preToolUseHookCommand = `node -e "let d='';process.stdin.on('data',c=>d+=c
 // Validates lock PID liveness and picks the most recent server.
 const notificationHookCommand = `node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const i=JSON.parse(d);if(i.notification_type!=='permission_prompt')return;const http=require('http');` + findAliveLockJS + `if(!best)return;const body=JSON.stringify({pid:process.ppid,tool_name:i.tool_name||'',tool_input:i.tool_input||{},message:i.message||''});const req=http.request({hostname:'127.0.0.1',port:best.port,path:'/notify',method:'POST',timeout:2000,headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'X-Claude-Code-Ide-Authorization':best.lock.authToken}});req.on('error',()=>{});req.on('timeout',()=>{req.destroy()});req.write(body);req.end();}catch{}})"` //nolint:lll
 
+// stopHookCommand is the node one-liner for Stop hooks.
+// Fires when a Claude Code turn completes. Posts session stop event to the server.
+const stopHookCommand = `node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const i=JSON.parse(d);const http=require('http');` + findAliveLockJS + `if(!best)return;const body=JSON.stringify({pid:process.ppid,stop_reason:i.stop_reason||'',session_id:i.session_id||''});const req=http.request({hostname:'127.0.0.1',port:best.port,path:'/stop',method:'POST',timeout:300,headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'X-Claude-Code-Ide-Authorization':best.lock.authToken}});req.on('error',()=>{});req.on('timeout',()=>{req.destroy()});req.write(body);req.end();}catch{}})"` //nolint:lll
+
+// sessionStartHookCommand is the node one-liner for SessionStart hooks.
+// Fires when a Claude Code session begins. Posts session start event to the server.
+const sessionStartHookCommand = `node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const i=JSON.parse(d);const http=require('http');` + findAliveLockJS + `if(!best)return;const body=JSON.stringify({pid:process.ppid,session_id:i.session_id||''});const req=http.request({hostname:'127.0.0.1',port:best.port,path:'/session-start',method:'POST',timeout:300,headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'X-Claude-Code-Ide-Authorization':best.lock.authToken}});req.on('error',()=>{});req.on('timeout',()=>{req.destroy()});req.write(body);req.end();}catch{}})"` //nolint:lll
+
 // ReadClaudeSettings reads ~/.claude/settings.json.
 // Returns empty map if file does not exist.
 func ReadClaudeSettings(path string) (map[string]any, error) {
@@ -137,6 +145,43 @@ func SetLazyClaudeHooks(settings map[string]any) map[string]any {
 
 	result["hooks"] = newHooks
 	return result
+}
+
+// BuildHooksSettingsJSON returns a JSON string suitable for the `claude --settings`
+// flag. It contains all lazyclaude hooks (PreToolUse, Notification, Stop, SessionStart)
+// so they are injected at session startup without modifying ~/.claude/settings.json.
+func BuildHooksSettingsJSON() (string, error) {
+	settings := map[string]any{
+		"hooks": buildHooksMap(),
+	}
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return "", fmt.Errorf("marshal hooks settings: %w", err)
+	}
+	return string(data), nil
+}
+
+// buildHooksMap returns the hooks structure with all lazyclaude hook types.
+func buildHooksMap() map[string]any {
+	hookEntry := func(command string) []any {
+		return []any{
+			map[string]any{
+				"matcher": "*",
+				"hooks": []any{
+					map[string]any{
+						"type":    "command",
+						"command": command,
+					},
+				},
+			},
+		}
+	}
+	return map[string]any{
+		"PreToolUse":   hookEntry(preToolUseHookCommand),
+		"Notification": hookEntry(notificationHookCommand),
+		"Stop":         hookEntry(stopHookCommand),
+		"SessionStart": hookEntry(sessionStartHookCommand),
+	}
 }
 
 // WriteClaudeSettings writes settings to a JSON file.
