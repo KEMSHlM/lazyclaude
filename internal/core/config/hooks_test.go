@@ -228,6 +228,30 @@ func TestBuildHooksSettingsJSON_SessionStartHookPostsToSessionStartEndpoint(t *t
 	assert.True(t, strings.Contains(jsonStr, "/session-start"), "SessionStart hook should POST to /session-start endpoint")
 }
 
+func TestBuildHooksSettingsJSON_UsesEnvVarResolution(t *testing.T) {
+	t.Parallel()
+	jsonStr, err := config.BuildHooksSettingsJSON()
+	require.NoError(t, err)
+
+	// Hooks should use LAZYCLAUDE_SERVER_PORT env var for fast path resolution
+	assert.True(t, strings.Contains(jsonStr, "LAZYCLAUDE_SERVER_PORT"),
+		"hooks should reference LAZYCLAUDE_SERVER_PORT for env-first resolution")
+	assert.True(t, strings.Contains(jsonStr, "LAZYCLAUDE_SERVER_TOKEN"),
+		"hooks should reference LAZYCLAUDE_SERVER_TOKEN for env-first resolution")
+}
+
+func TestBuildHooksSettingsJSON_RetainsLockFileFallback(t *testing.T) {
+	t.Parallel()
+	jsonStr, err := config.BuildHooksSettingsJSON()
+	require.NoError(t, err)
+
+	// Lock file scanning must remain as fallback when env vars are not set
+	assert.True(t, strings.Contains(jsonStr, "process.kill"),
+		"hooks should retain lock file fallback with PID liveness check")
+	assert.True(t, strings.Contains(jsonStr, ".lock"),
+		"hooks should retain lock file scanning as fallback")
+}
+
 func TestSetLazyClaudeHooks_Roundtrip(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
