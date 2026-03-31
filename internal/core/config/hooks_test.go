@@ -254,7 +254,6 @@ func TestWriteHooksSettingsFile(t *testing.T) {
 
 	// Must contain literal JS operators that Go would normally escape.
 	assert.True(t, strings.Contains(content, `=>`), "must contain literal => (arrow functions)")
-	assert.True(t, strings.Contains(content, `&&`), "must contain literal && (logical AND)")
 
 	// Valid JSON
 	var parsed map[string]any
@@ -268,28 +267,22 @@ func TestWriteHooksSettingsFile(t *testing.T) {
 	assert.Contains(t, hooks, "UserPromptSubmit")
 }
 
-func TestBuildHooksSettingsJSON_UsesEnvVarResolution(t *testing.T) {
+func TestBuildHooksSettingsJSON_UsesLockFileOnly(t *testing.T) {
 	t.Parallel()
 	jsonStr, err := config.BuildHooksSettingsJSON()
 	require.NoError(t, err)
 
-	// Hooks should use LAZYCLAUDE_SERVER_PORT env var for fast path resolution
-	assert.True(t, strings.Contains(jsonStr, "LAZYCLAUDE_SERVER_PORT"),
-		"hooks should reference LAZYCLAUDE_SERVER_PORT for env-first resolution")
-	assert.True(t, strings.Contains(jsonStr, "LAZYCLAUDE_SERVER_TOKEN"),
-		"hooks should reference LAZYCLAUDE_SERVER_TOKEN for env-first resolution")
-}
+	// Hooks must NOT reference env vars — always use lock file discovery
+	assert.False(t, strings.Contains(jsonStr, "LAZYCLAUDE_SERVER_PORT"),
+		"hooks must not reference LAZYCLAUDE_SERVER_PORT (env var path removed)")
+	assert.False(t, strings.Contains(jsonStr, "LAZYCLAUDE_SERVER_TOKEN"),
+		"hooks must not reference LAZYCLAUDE_SERVER_TOKEN (env var path removed)")
 
-func TestBuildHooksSettingsJSON_RetainsLockFileFallback(t *testing.T) {
-	t.Parallel()
-	jsonStr, err := config.BuildHooksSettingsJSON()
-	require.NoError(t, err)
-
-	// Lock file scanning must remain as fallback when env vars are not set
+	// Lock file scanning with PID liveness check must be present
 	assert.True(t, strings.Contains(jsonStr, "process.kill"),
-		"hooks should retain lock file fallback with PID liveness check")
+		"hooks must validate PID liveness via lock file")
 	assert.True(t, strings.Contains(jsonStr, ".lock"),
-		"hooks should retain lock file scanning as fallback")
+		"hooks must use lock file scanning for server discovery")
 }
 
 func TestSetLazyClaudeHooks_Roundtrip(t *testing.T) {

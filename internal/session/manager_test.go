@@ -752,26 +752,26 @@ func TestManager_launchWorktreeSession_RoleWorker_UsesWorkerPrompt(t *testing.T)
 
 // --- claudeEnv tests ---
 
-func TestClaudeEnv_InjectsLazyClaudeVars(t *testing.T) {
+func TestClaudeEnv_InjectsSessionID(t *testing.T) {
 	t.Parallel()
 	env := session.ClaudeEnv("sess-abc", 12345, "tok-xyz")
 
 	assert.Equal(t, "sess-abc", env["LAZYCLAUDE_SESSION_ID"])
-	assert.Equal(t, "12345", env["LAZYCLAUDE_SERVER_PORT"])
-	assert.Equal(t, "tok-xyz", env["LAZYCLAUDE_SERVER_TOKEN"])
 	assert.Equal(t, "true", env["CLAUDE_CODE_AUTO_CONNECT_IDE"])
+
+	// Server port/token must NOT be injected — hooks use lock file discovery
+	_, hasPort := env["LAZYCLAUDE_SERVER_PORT"]
+	_, hasToken := env["LAZYCLAUDE_SERVER_TOKEN"]
+	assert.False(t, hasPort, "server port must not be in env (hooks use lock file)")
+	assert.False(t, hasToken, "server token must not be in env (hooks use lock file)")
 }
 
-func TestClaudeEnv_OmitsEmptyValues(t *testing.T) {
+func TestClaudeEnv_OmitsEmptySessionID(t *testing.T) {
 	t.Parallel()
 	env := session.ClaudeEnv("", 0, "")
 
 	_, hasID := env["LAZYCLAUDE_SESSION_ID"]
-	_, hasPort := env["LAZYCLAUDE_SERVER_PORT"]
-	_, hasToken := env["LAZYCLAUDE_SERVER_TOKEN"]
 	assert.False(t, hasID, "empty sessionID should not be set")
-	assert.False(t, hasPort, "zero port should not be set")
-	assert.False(t, hasToken, "empty token should not be set")
 }
 
 func TestClaudeEnv_AlwaysHasAutoConnectIDE(t *testing.T) {

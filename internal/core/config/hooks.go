@@ -28,19 +28,18 @@ const findAliveLockJS = `const fs=require('fs'),path=require('path'),home=requir
 	`}catch{}}`
 
 // resolveServerJS resolves the server port and auth token.
-// Uses LAZYCLAUDE_SERVER_PORT/TOKEN env vars when available (fast path),
-// falls back to lock file scanning when env vars are not set (e.g. server restart).
+// Always reads lock files from ~/.claude/ide/ to find the alive server.
+// This ensures hooks always connect to the current server even after restarts.
 // Sets `srvPort` (number) and `srvToken` (string), or both null if no server found.
 const resolveServerJS = `let srvPort=null,srvToken=null;` +
-	`const ep=process.env.LAZYCLAUDE_SERVER_PORT,et=process.env.LAZYCLAUDE_SERVER_TOKEN;` +
-	`if(ep&&et){srvPort=parseInt(ep,10);srvToken=et;}else{` + findAliveLockJS + `if(best){srvPort=best.port;srvToken=best.lock.authToken;}}`
+	findAliveLockJS + `if(best){srvPort=best.port;srvToken=best.lock.authToken;}`
 
 // preToolUseHookCommand is the node one-liner for PreToolUse hooks.
-// Uses env vars for fast server resolution, falls back to lock file scanning.
+// Resolves server via lock file scanning with PID liveness validation.
 const preToolUseHookCommand = `node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const i=JSON.parse(d);const http=require('http');` + resolveServerJS + `if(!srvPort){console.log(d);return;}const body=JSON.stringify({type:'tool_info',pid:process.ppid,tool_name:i.tool_name||'',tool_input:i.tool_input||{}});const req=http.request({hostname:'127.0.0.1',port:srvPort,path:'/notify',method:'POST',timeout:300,headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'X-Claude-Code-Ide-Authorization':srvToken}});req.on('error',()=>{});req.on('timeout',()=>{req.destroy()});req.write(body);req.end();}catch{}console.log(d);})"` //nolint:lll
 
 // notificationHookCommand is the node one-liner for Notification hooks.
-// Uses env vars for fast server resolution, falls back to lock file scanning.
+// Resolves server via lock file scanning with PID liveness validation.
 const notificationHookCommand = `node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const i=JSON.parse(d);if(i.notification_type!=='permission_prompt')return;const http=require('http');` + resolveServerJS + `if(!srvPort)return;const body=JSON.stringify({pid:process.ppid,tool_name:i.tool_name||'',tool_input:i.tool_input||{},message:i.message||''});const req=http.request({hostname:'127.0.0.1',port:srvPort,path:'/notify',method:'POST',timeout:2000,headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'X-Claude-Code-Ide-Authorization':srvToken}});req.on('error',()=>{});req.on('timeout',()=>{req.destroy()});req.write(body);req.end();}catch{}})"` //nolint:lll
 
 // stopHookCommand is the node one-liner for Stop hooks.
@@ -185,8 +184,8 @@ func WriteHooksSettingsFile(runtimeDir string) (string, error) {
 
 	// Use json.Encoder with SetEscapeHTML(false) to prevent Go's default
 	// HTML-safe escaping of >, <, & to \u003e, \u003c, \u0026.
-	// Hook commands contain => (arrow functions) and && (logical AND) which
-	// must remain literal for node to parse them correctly.
+	// Hook commands contain => (arrow functions) which must remain literal
+	// for node to parse them correctly.
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)

@@ -565,20 +565,14 @@ func (m *Manager) buildClaudeCommand(sess Session) string {
 
 // claudeEnv returns environment variables to pass to Claude Code sessions.
 // Inherits auth tokens and Claude-specific vars from the parent process.
-// When mcpPort > 0, injects LAZYCLAUDE_* env vars so hooks can connect directly.
-func claudeEnv(sessionID string, mcpPort int, mcpToken string) map[string]string {
+// Server port/token are NOT injected as env vars — hooks always discover the
+// server via lock file scanning so they survive server restarts.
+func claudeEnv(sessionID string, _ int, _ string) map[string]string {
 	env := map[string]string{
 		"CLAUDE_CODE_AUTO_CONNECT_IDE": "true",
 	}
-	// Inject lazyclaude session/server info for hooks (env-first, lock-file fallback).
 	if sessionID != "" {
 		env["LAZYCLAUDE_SESSION_ID"] = sessionID
-	}
-	if mcpPort > 0 {
-		env["LAZYCLAUDE_SERVER_PORT"] = strconv.Itoa(mcpPort)
-	}
-	if mcpToken != "" {
-		env["LAZYCLAUDE_SERVER_TOKEN"] = mcpToken
 	}
 	// Pass through Claude auth and config env vars
 	passthrough := []string{
