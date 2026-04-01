@@ -44,6 +44,10 @@ func (r Role) IsValid() bool {
 //  2. {projectRoot}/.lazyclaude/prompts/{filename}
 //  3. Embedded default (compiled into the binary)
 //
+// Note: the worktree custom config path uses "worktree" (singular) for per-branch
+// configuration, which is distinct from the "worktrees" (plural) directory where
+// git worktree checkouts reside (WorktreePathSegment).
+//
 // worktreePath may be empty (e.g. for PM sessions that run in the project root).
 // When empty, the worktree-level search is skipped.
 // projectRoot must be an absolute path; relative paths fall back to the default.
@@ -81,10 +85,10 @@ func resolvePrompt(projectRoot, worktreePath, filename, fallback string) string 
 }
 
 // branchFromWorktreePath extracts the branch name from a worktree path by
-// computing the path relative to {projectRoot}/.claude/worktrees/.
+// computing the path relative to {projectRoot}/{WorktreePathSegment}/.
 // Returns empty string if the path does not match the expected pattern.
 func branchFromWorktreePath(projectRoot, wtPath string) string {
-	base := filepath.Join(projectRoot, ".claude", "worktrees") + string(os.PathSeparator)
+	base := filepath.Join(projectRoot, WorktreePathSegment) + string(os.PathSeparator)
 	if !strings.HasPrefix(wtPath, base) {
 		return ""
 	}
