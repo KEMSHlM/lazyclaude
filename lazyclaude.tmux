@@ -9,11 +9,17 @@
 
 CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 LAUNCHER="${CURRENT_DIR}/scripts/lazyclaude-launch.sh"
-BINARY="${CURRENT_DIR}/bin/lazyclaude"
+
+# Prefer the installed binary on PATH; fall back to repo-local bin/.
+BINARY="$(command -v lazyclaude 2>/dev/null || true)"
+if [ -z "$BINARY" ]; then
+    BINARY="${CURRENT_DIR}/bin/lazyclaude"
+fi
 
 if [ ! -x "$BINARY" ]; then
     echo "lazyclaude: binary not found, building..." >&2
     (cd "$CURRENT_DIR" && make build) >&2
+    BINARY="${CURRENT_DIR}/bin/lazyclaude"
     if [ ! -x "$BINARY" ]; then
         echo "lazyclaude: build failed (is Go installed?)" >&2
         exit 1
