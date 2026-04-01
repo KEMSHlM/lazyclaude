@@ -229,16 +229,18 @@ func (s *Server) setActivity(window string, state model.ActivityState, toolName 
 		return
 	}
 	s.activityMu.Lock()
+	defer s.activityMu.Unlock()
 	s.activityMap[window] = activityEntry{State: state, ToolName: toolName}
-	s.activityMu.Unlock()
 }
 
 // stopReasonToActivity maps a stop_reason string to an ActivityState.
 func stopReasonToActivity(reason string) model.ActivityState {
-	if reason == "error" {
+	switch reason {
+	case "error", "interrupt":
 		return model.ActivityError
+	default:
+		return model.ActivityIdle
 	}
-	return model.ActivityIdle
 }
 
 // WindowActivity returns the current activity state for a tmux window.

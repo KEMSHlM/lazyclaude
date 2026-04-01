@@ -332,7 +332,7 @@ func (s *Server) handleMsgSessions(w http.ResponseWriter, r *http.Request) {
 		sessions = []SessionInfo{}
 	}
 
-	// Overlay hook-based activity state from the broker subscription.
+	// Overlay hook-based activity state recorded by hook handlers.
 	s.enrichWithActivity(sessions)
 
 	w.Header().Set("Content-Type", "application/json")

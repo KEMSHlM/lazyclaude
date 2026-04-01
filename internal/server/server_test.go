@@ -660,6 +660,26 @@ func TestServer_Activity_StopErrorSetsError(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 }
 
+func TestServer_Activity_StopInterruptSetsError(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+	srv.State().SetConn("c1", &server.ConnState{PID: 2005, Window: "@25"})
+
+	body, _ := json.Marshal(map[string]any{
+		"pid":         2005,
+		"stop_reason": "interrupt",
+		"session_id":  "sess-int",
+	})
+	resp := postEndpoint(t, port, "/stop", body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	require.Eventually(t, func() bool {
+		state, _ := srv.WindowActivity("@25")
+		return state.String() == "error"
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
 func TestServer_Activity_PromptSubmitSetsRunning(t *testing.T) {
 	t.Parallel()
 	srv, port, _ := startTestServer(t)

@@ -440,10 +440,12 @@ func (a *App) clearUnreadActivity(window string) {
 
 // stopReasonToActivity converts a Claude Code stop_reason to an ActivityState.
 func stopReasonToActivity(reason string) model.ActivityState {
-	if reason == "error" {
+	switch reason {
+	case "error", "interrupt":
 		return model.ActivityError
+	default:
+		return model.ActivityIdle
 	}
-	return model.ActivityIdle
 }
 
 // Gui returns the underlying gocui.Gui (for testing).
