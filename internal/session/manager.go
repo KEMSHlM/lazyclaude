@@ -229,7 +229,7 @@ func (m *Manager) createWorktreeSession(ctx context.Context, opts worktreeOpts) 
 
 	// Read MCP info outside the lock (file I/O).
 	// Worker role requires MCP info; regular worktrees gracefully degrade.
-	mcpPort, mcpToken, mcpErr := m.readMCPInfo()
+	mcpPort, _, mcpErr := m.readMCPInfo()
 	if mcpErr != nil && opts.Role == RoleWorker {
 		return nil, fmt.Errorf("read MCP info for worker session: %w", mcpErr)
 	}
@@ -252,7 +252,7 @@ func (m *Manager) createWorktreeSession(ctx context.Context, opts worktreeOpts) 
 		}
 	}
 
-	return m.launchWorktreeSession(ctx, opts.Name, wtPath, opts.UserPrompt, opts.ProjectRoot, opts.Role, mcpPort, mcpToken)
+	return m.launchWorktreeSession(ctx, opts.Name, wtPath, opts.UserPrompt, opts.ProjectRoot, opts.Role, mcpPort)
 }
 
 // CreateWorktree creates a git worktree and launches Claude Code with an initial prompt.
@@ -330,14 +330,14 @@ func (m *Manager) launchSession(ctx context.Context, sess Session, claudeCmd, st
 // running Claude Code in a worktree directory. Called by CreateWorktree,
 // ResumeWorktree, and CreateWorkerSession. Caller must hold m.mu.
 //
-// mcpPort/mcpToken are pre-resolved by the caller (outside the lock).
-// When mcpPort <= 0, the basic worktree isolation prompt is used instead.
-func (m *Manager) launchWorktreeSession(ctx context.Context, name, wtPath, userPrompt, projectRoot string, role Role, mcpPort int, mcpToken string) (*Session, error) {
+// mcpPort controls prompt selection: when > 0 the full Worker prompt with
+// CLI commands is used; otherwise the basic worktree isolation prompt is used.
+func (m *Manager) launchWorktreeSession(ctx context.Context, name, wtPath, userPrompt, projectRoot string, role Role, mcpPort int) (*Session, error) {
 	id := uuid.New().String()
 
 	var systemPrompt string
 	if mcpPort > 0 {
-		systemPrompt = BuildWorkerPrompt(wtPath, projectRoot, id, mcpPort, mcpToken, m.paths.PortFile(), m.paths.IDEDir)
+		systemPrompt = BuildWorkerPrompt(wtPath, projectRoot, id)
 	} else {
 		systemPrompt = BuildWorktreePrompt(wtPath, projectRoot)
 	}
@@ -620,12 +620,6 @@ func termSize() (int, int) {
 // Returns an error if a PM session already exists for this projectRoot.
 // Holds the manager mutex throughout to prevent races.
 func (m *Manager) CreatePMSession(ctx context.Context, projectRoot string) (*Session, error) {
-	// Read MCP info outside the lock (file I/O).
-	mcpPort, token, err := m.readMCPInfo()
-	if err != nil {
-		return nil, fmt.Errorf("read MCP info for pm session: %w", err)
-	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -646,7 +640,7 @@ func (m *Manager) CreatePMSession(ctx context.Context, projectRoot string) (*Ses
 	workerList := strings.Join(workerLines, "\n")
 
 	id := uuid.New().String()
-	systemPrompt := BuildPMPrompt(id, mcpPort, token, workerList, m.paths.PortFile(), m.paths.IDEDir)
+	systemPrompt := BuildPMPrompt(id, workerList)
 
 	launcher, err := writeWorktreeLauncher(systemPrompt, "", m.paths.RuntimeDir)
 	if err != nil {

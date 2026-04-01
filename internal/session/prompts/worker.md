@@ -11,54 +11,26 @@ Session ID:    %s
 The PM's response will be delivered directly to your input.
 You do not need to poll for messages — they arrive automatically.
 
-## Server Discovery
-
-The MCP server port and token are discovered dynamically from disk.
-This works even after server restart — no hardcoded values.
-
-```bash
-PORT=$(cat %s) && \
-TOKEN=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['authToken'])" "%s/$PORT.lock")
-```
-
 ## Communicating with PM
-
-### Send a review request to the PM:
-```bash
-PORT=$(cat %s) && \
-TOKEN=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['authToken'])" "%s/$PORT.lock") && \
-curl -s -X POST -H "X-Auth-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"from":"%s","to":"<pm-session-id>","type":"review_request","body":"<description of changes>"}' \
-  "http://localhost:$PORT/msg/send"
-```
 
 ### List active sessions (to find the PM session ID):
 ```bash
-PORT=$(cat %s) && \
-TOKEN=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['authToken'])" "%s/$PORT.lock") && \
-curl -s -H "X-Auth-Token: $TOKEN" \
-  "http://localhost:$PORT/msg/sessions"
+lazyclaude sessions
+```
+
+### Send a review request to the PM:
+```bash
+lazyclaude msg send --from %s --type review_request <pm-session-id> "<description of changes>"
 ```
 
 ### Spawn a new session:
 ```bash
-PORT=$(cat %s) && \
-TOKEN=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['authToken'])" "%s/$PORT.lock") && \
-curl -s -X POST -H "X-Auth-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"from":"%s","name":"<session-name>","type":"worker","prompt":"<initial task description>"}' \
-  "http://localhost:$PORT/msg/create"
+lazyclaude msg send --from %s --type status <pm-session-id> "spawn worker <name> <prompt>"
 ```
-
-- `type`: `"worker"` (git worktree session) or `"local"` (plain session at project root)
-- `name`: required — worktree/branch name for worker, display name for local
-- `prompt`: optional — initial instruction sent to the new session
-- The new session is scoped to your project automatically.
 
 ### Fallback: tmux send-keys
 
-If /msg/send fails (server not running), bypass the API and paste
+If lazyclaude CLI is not available, bypass the API and paste
 the message directly into the tmux pane:
 
 ```bash
@@ -66,7 +38,7 @@ tmux -L lazyclaude send-keys -l -t <window-id> -- "<message text>"
 tmux -L lazyclaude send-keys -t <window-id> Enter
 ```
 
-Use /msg/sessions to find the recipient's `window` field (e.g. `@4`).
+Use `lazyclaude sessions -v` to find the recipient's `window` field (e.g. `@4`).
 
 ## Workflow
 

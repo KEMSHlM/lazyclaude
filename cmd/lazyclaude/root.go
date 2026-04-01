@@ -165,6 +165,8 @@ func newRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newServerCmd())
 	cmd.AddCommand(newSetupCmd())
+	cmd.AddCommand(newSessionsCmd())
+	cmd.AddCommand(newMsgCmd())
 
 	return cmd
 }

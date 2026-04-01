@@ -37,16 +37,13 @@ func (r Role) IsValid() bool {
 var pmSystemPrompt string
 
 // BuildPMPrompt generates the system prompt injected into a PM session at launch.
-// All curl commands use dynamic server discovery (portFile + ideDir) instead of
-// hardcoded port/token, so they survive MCP server restarts.
+// Uses lazyclaude CLI subcommands for server communication instead of raw curl.
 // The template is loaded from prompts/pm.md.
-func BuildPMPrompt(sessionID string, mcpPort int, authToken string, workerList string, portFile string, ideDir string) string {
+func BuildPMPrompt(sessionID string, workerList string) string {
 	return fmt.Sprintf(pmSystemPrompt,
-		sessionID,    // Session ID line
-		portFile, ideDir, // Server Discovery section
-		portFile, ideDir, sessionID, // send curl: discovery + from field
-		portFile, ideDir, // sessions curl: discovery
-		portFile, ideDir, sessionID, // create curl: discovery + from field
+		sessionID, // Session ID line
+		sessionID, // msg send --from
+		sessionID, // msg send --from (spawn)
 		workerList,
 	)
 }
@@ -55,17 +52,14 @@ func BuildPMPrompt(sessionID string, mcpPort int, authToken string, workerList s
 var workerRolePrompt string
 
 // BuildWorkerPrompt generates the system prompt injected into a Worker session at launch.
-// All curl commands use dynamic server discovery (portFile + ideDir) instead of
-// hardcoded port/token, so they survive MCP server restarts.
+// Uses lazyclaude CLI subcommands for server communication instead of raw curl.
 // The template is loaded from prompts/worker.md.
-func BuildWorkerPrompt(worktreePath, projectRoot, sessionID string, mcpPort int, authToken string, portFile string, ideDir string) string {
+func BuildWorkerPrompt(worktreePath, projectRoot, sessionID string) string {
 	return fmt.Sprintf(workerRolePrompt,
 		projectRoot,  // NEVER modify ... must remain untouched
 		worktreePath, // Worktree path line
 		sessionID,    // Session ID line
-		portFile, ideDir, // Server Discovery section
-		portFile, ideDir, sessionID, // send curl: discovery + from field
-		portFile, ideDir, // sessions curl: discovery
-		portFile, ideDir, sessionID, // create curl: discovery + from field
+		sessionID,    // msg send --from (review_request)
+		sessionID,    // msg send --from (spawn)
 	)
 }

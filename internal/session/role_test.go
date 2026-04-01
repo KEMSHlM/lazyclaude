@@ -54,7 +54,7 @@ func TestRole_IsValid(t *testing.T) {
 
 func TestBuildPMPrompt_ContainsRequiredFields(t *testing.T) {
 	t.Parallel()
-	prompt := session.BuildPMPrompt("sess-abc123", 9876, "tok-secret", "worker-1, worker-2", "/tmp/lazyclaude-mcp.port", "/home/user/.claude/ide")
+	prompt := session.BuildPMPrompt("sess-abc123", "worker-1, worker-2")
 
 	cases := []struct {
 		desc    string
@@ -62,17 +62,13 @@ func TestBuildPMPrompt_ContainsRequiredFields(t *testing.T) {
 	}{
 		{"sessionID", "sess-abc123"},
 		{"worker list", "worker-1, worker-2"},
-		{"send endpoint", "/msg/send"},
-		{"sessions endpoint", "/msg/sessions"},
+		{"sessions CLI", "lazyclaude sessions"},
+		{"msg send CLI", "lazyclaude msg send"},
 		{"role description", "PM"},
 		{"review criteria correctness", "correctness"},
 		{"review criteria tests", "test"},
 		{"review criteria security", "security"},
-		{"auth header", "X-Auth-Token:"},
 		{"push delivery notice", "delivered directly"},
-		{"port file path", "/tmp/lazyclaude-mcp.port"},
-		{"ide dir path", "/home/user/.claude/ide"},
-		{"dynamic discovery", "$PORT"},
 	}
 	for _, tc := range cases {
 		if !strings.Contains(prompt, tc.snippet) {
@@ -83,7 +79,7 @@ func TestBuildPMPrompt_ContainsRequiredFields(t *testing.T) {
 
 func TestBuildPMPrompt_NoPollInstructions(t *testing.T) {
 	t.Parallel()
-	prompt := session.BuildPMPrompt("sess-xyz", 8080, "tok-abc", "", "/tmp/mcp.port", "/tmp/ide")
+	prompt := session.BuildPMPrompt("sess-xyz", "")
 	if strings.Contains(prompt, "/msg/poll") {
 		t.Error("BuildPMPrompt should not contain /msg/poll (push-based, no polling needed)")
 	}
@@ -91,9 +87,26 @@ func TestBuildPMPrompt_NoPollInstructions(t *testing.T) {
 
 func TestBuildPMPrompt_EmptyWorkerList(t *testing.T) {
 	t.Parallel()
-	prompt := session.BuildPMPrompt("sess-xyz", 8080, "tok-abc", "", "/tmp/mcp.port", "/tmp/ide")
-	if !strings.Contains(prompt, "$PORT") {
-		t.Error("BuildPMPrompt with empty worker list should still contain $PORT")
+	prompt := session.BuildPMPrompt("sess-xyz", "")
+	// Should still contain the CLI commands
+	if !strings.Contains(prompt, "lazyclaude sessions") {
+		t.Error("BuildPMPrompt with empty worker list should still contain lazyclaude sessions")
+	}
+}
+
+func TestBuildPMPrompt_UsesCLINotCurl(t *testing.T) {
+	t.Parallel()
+	prompt := session.BuildPMPrompt("sess-pm", "")
+
+	// Must use CLI subcommands, not raw curl
+	if strings.Contains(prompt, "curl -s") {
+		t.Error("prompt should use lazyclaude CLI, not curl")
+	}
+	if strings.Contains(prompt, "$PORT") {
+		t.Error("prompt should not contain $PORT (CLI handles discovery)")
+	}
+	if strings.Contains(prompt, "$TOKEN") {
+		t.Error("prompt should not contain $TOKEN (CLI handles discovery)")
 	}
 }
 
@@ -103,10 +116,6 @@ func TestBuildWorkerPrompt_ContainsRequiredFields(t *testing.T) {
 		"/project/.claude/worktrees/feat-x",
 		"/project",
 		"sess-worker-99",
-		9876,
-		"tok-secret",
-		"/tmp/lazyclaude-mcp.port",
-		"/home/user/.claude/ide",
 	)
 
 	cases := []struct {
@@ -116,16 +125,12 @@ func TestBuildWorkerPrompt_ContainsRequiredFields(t *testing.T) {
 		{"worktree path", "/project/.claude/worktrees/feat-x"},
 		{"project root", "/project"},
 		{"sessionID", "sess-worker-99"},
-		{"send endpoint", "/msg/send"},
-		{"sessions endpoint", "/msg/sessions"},
+		{"sessions CLI", "lazyclaude sessions"},
+		{"msg send CLI", "lazyclaude msg send"},
 		{"isolation instruction", "NEVER modify"},
 		{"role description", "Worker"},
 		{"review request instruction", "review"},
-		{"auth header", "X-Auth-Token:"},
 		{"push delivery notice", "delivered directly"},
-		{"port file path", "/tmp/lazyclaude-mcp.port"},
-		{"ide dir path", "/home/user/.claude/ide"},
-		{"dynamic discovery", "$PORT"},
 	}
 	for _, tc := range cases {
 		if !strings.Contains(prompt, tc.snippet) {
@@ -140,10 +145,6 @@ func TestBuildWorkerPrompt_NoPollInstructions(t *testing.T) {
 		"/project/.claude/worktrees/feat-x",
 		"/project",
 		"sess-worker-99",
-		9876,
-		"tok-secret",
-		"/tmp/mcp.port",
-		"/tmp/ide",
 	)
 	if strings.Contains(prompt, "/msg/poll") {
 		t.Error("BuildWorkerPrompt should not contain /msg/poll (push-based, no polling needed)")
@@ -154,9 +155,8 @@ func TestBuildWorkerPrompt_PathIsolation(t *testing.T) {
 	t.Parallel()
 	worktree := "/home/user/project/.claude/worktrees/my-task"
 	root := "/home/user/project"
-	prompt := session.BuildWorkerPrompt(worktree, root, "id-1", 8080, "t", "/tmp/mcp.port", "/tmp/ide")
+	prompt := session.BuildWorkerPrompt(worktree, root, "id-1")
 
-	// Must mention both paths for isolation enforcement
 	if !strings.Contains(prompt, worktree) {
 		t.Errorf("BuildWorkerPrompt missing worktree path %q", worktree)
 	}
@@ -165,81 +165,44 @@ func TestBuildWorkerPrompt_PathIsolation(t *testing.T) {
 	}
 }
 
-// TestBuildWorkerPrompt_DynamicDiscovery verifies that curl commands use
-// dynamic port/token discovery (cat portFile + python3 lockFile) instead of
-// hardcoded values. This prevents stale connection after server restart.
-func TestBuildWorkerPrompt_DynamicDiscovery(t *testing.T) {
+func TestBuildWorkerPrompt_UsesCLINotCurl(t *testing.T) {
 	t.Parallel()
 	prompt := session.BuildWorkerPrompt(
 		"/project/.claude/worktrees/feat-x",
 		"/project",
 		"sess-worker-99",
-		9876,
-		"tok-secret",
-		"/tmp/lazyclaude-mcp.port",
-		"/home/user/.claude/ide",
 	)
 
-	// The prompt must NOT contain hardcoded "localhost:9876" — all curl
-	// commands must use $PORT for dynamic server discovery.
-	if strings.Contains(prompt, "localhost:9876") {
-		t.Error("prompt must not contain hardcoded localhost:9876; curl should use $PORT")
+	if strings.Contains(prompt, "curl -s") {
+		t.Error("prompt should use lazyclaude CLI, not curl")
 	}
-
-	// The prompt must NOT contain "X-Auth-Token: tok-secret" — all curl
-	// commands must use $TOKEN for dynamic token discovery.
-	if strings.Contains(prompt, "Token: tok-secret") {
-		t.Error("prompt must not contain hardcoded token in curl; should use $TOKEN")
+	if strings.Contains(prompt, "$PORT") {
+		t.Error("prompt should not contain $PORT (CLI handles discovery)")
 	}
-
-	// Must use $PORT and $TOKEN variables in curl commands
-	if !strings.Contains(prompt, "$PORT") {
-		t.Error("prompt must contain $PORT variable for dynamic port")
-	}
-	if !strings.Contains(prompt, "$TOKEN") {
-		t.Error("prompt must contain $TOKEN variable for dynamic token")
-	}
-
-	// Must contain dynamic discovery commands using portFile and ideDir
-	if !strings.Contains(prompt, "$(cat") {
-		t.Error("prompt must contain $(cat ...) for dynamic port discovery")
+	if strings.Contains(prompt, "$TOKEN") {
+		t.Error("prompt should not contain $TOKEN (CLI handles discovery)")
 	}
 }
 
-// TestBuildPMPrompt_DynamicDiscovery verifies PM prompt also uses dynamic discovery.
-func TestBuildPMPrompt_DynamicDiscovery(t *testing.T) {
+func TestBuildWorkerPrompt_SessionIDInFromFlag(t *testing.T) {
 	t.Parallel()
-	prompt := session.BuildPMPrompt("sess-pm", 9876, "tok-secret", "", "/tmp/lazyclaude-mcp.port", "/home/user/.claude/ide")
+	prompt := session.BuildWorkerPrompt(
+		"/project/.claude/worktrees/feat-x",
+		"/project",
+		"sess-worker-99",
+	)
 
-	if strings.Contains(prompt, "localhost:9876") {
-		t.Error("prompt must not contain hardcoded localhost:9876; curl should use $PORT")
-	}
-	if strings.Contains(prompt, "Token: tok-secret") {
-		t.Error("prompt must not contain hardcoded token in curl; should use $TOKEN")
-	}
-	if !strings.Contains(prompt, "$PORT") {
-		t.Error("prompt must contain $PORT variable")
-	}
-	if !strings.Contains(prompt, "$TOKEN") {
-		t.Error("prompt must contain $TOKEN variable")
+	// The --from flag should contain the session ID
+	if !strings.Contains(prompt, "--from sess-worker-99") {
+		t.Error("worker prompt should contain --from <session-id> in msg send examples")
 	}
 }
 
-func TestBuildPMPrompt_CurlExampleIsUsable(t *testing.T) {
+func TestBuildPMPrompt_SessionIDInFromFlag(t *testing.T) {
 	t.Parallel()
-	// Verify the curl example uses correct HTTP method conventions
-	prompt := session.BuildPMPrompt("id-pm", 1234, "mytoken", "", "/tmp/mcp.port", "/tmp/ide")
+	prompt := session.BuildPMPrompt("sess-pm-42", "workers")
 
-	// /msg/send requires POST; /msg/sessions requires GET
-	if !strings.Contains(prompt, "/msg/send") {
-		t.Fatal("prompt missing /msg/send")
-	}
-	if !strings.Contains(prompt, "/msg/sessions") {
-		t.Fatal("prompt missing /msg/sessions")
-	}
-
-	// The prompt must mention POST (for /msg/send curl examples)
-	if !strings.Contains(strings.ToUpper(prompt), "POST") {
-		t.Error("prompt should mention POST for /msg/send")
+	if !strings.Contains(prompt, "--from sess-pm-42") {
+		t.Error("PM prompt should contain --from <session-id> in msg send examples")
 	}
 }
