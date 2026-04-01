@@ -64,7 +64,7 @@ type SessionInfo struct {
 	Host     string `json:"host,omitempty"`     // SSH host (e.g. "user@host"); empty for local
 	Window   string `json:"window,omitempty"`   // tmux window ID (e.g. "@1")
 	Status   string `json:"status,omitempty"`   // runtime status string (e.g. "Running")
-	Activity string `json:"activity,omitempty"` // hook-based activity state (e.g. "running", "idle")
+	Activity string `json:"activity"` // hook-based activity state (e.g. "running", "idle", "unknown")
 }
 
 type msgCreateRequest struct {

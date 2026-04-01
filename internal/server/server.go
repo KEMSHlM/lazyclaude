@@ -260,6 +260,7 @@ func (s *Server) enrichWithActivity(sessions []SessionInfo) {
 	defer s.activityMu.RUnlock()
 	for i := range sessions {
 		if sessions[i].Window == "" {
+			sessions[i].Activity = model.ActivityUnknown.String()
 			continue
 		}
 		if e, ok := s.activityMap[sessions[i].Window]; ok {
