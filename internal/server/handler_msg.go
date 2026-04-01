@@ -199,6 +199,11 @@ func (s *Server) handleMsgSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.From == req.To {
+		http.Error(w, "cannot send a message to yourself", http.StatusBadRequest)
+		return
+	}
+
 	if !isValidMsgType(req.Type) {
 		http.Error(w, "invalid message type", http.StatusBadRequest)
 		return

@@ -88,6 +88,43 @@ func (c *Client) SendMessage(ctx context.Context, from, to, msgType, body string
 	return nil
 }
 
+// CreateSession creates a new session via POST /msg/create.
+func (c *Client) CreateSession(ctx context.Context, from, name, sessionType, prompt string) (*MsgCreateResponse, error) {
+	payload := msgCreateRequest{
+		From:   from,
+		Name:   name,
+		Type:   sessionType,
+		Prompt: prompt,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal create request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/msg/create", bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("X-Auth-Token", c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request /msg/create: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned %d: %s", resp.StatusCode, readErrorBody(resp))
+	}
+
+	var result MsgCreateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode create response: %w", err)
+	}
+	return &result, nil
+}
+
 // readErrorBody reads and truncates the response body for error reporting.
 func readErrorBody(resp *http.Response) string {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxErrBody))

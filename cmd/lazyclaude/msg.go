@@ -18,6 +18,12 @@ var validMsgTypes = map[string]bool{
 	"issue":           true,
 }
 
+// validCreateTypes mirrors the server's allowlist for session types.
+var validCreateTypes = map[string]bool{
+	"worker": true,
+	"local":  true,
+}
+
 func newMsgCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "msg",
@@ -25,6 +31,7 @@ func newMsgCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(newMsgSendCmd())
+	cmd.AddCommand(newMsgCreateCmd())
 	return cmd
 }
 
@@ -65,6 +72,57 @@ func newMsgSendCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&msgType, "type", "status", "message type (review_request, review_response, status, done, issue)")
 	cmd.Flags().StringVar(&from, "from", "cli", "sender session ID")
+
+	return cmd
+}
+
+func newMsgCreateCmd() *cobra.Command {
+	var (
+		name       string
+		createType string
+		prompt     string
+		from       string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new session via the server API",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if name == "" {
+				return fmt.Errorf("--name is required")
+			}
+
+			if !validCreateTypes[createType] {
+				return fmt.Errorf("invalid --type %q; must be one of: worker, local", createType)
+			}
+
+			paths := config.DefaultPaths()
+			disc, err := server.DiscoverServer(paths.IDEDir)
+			if err != nil {
+				return fmt.Errorf("discover server: %w", err)
+			}
+
+			client := server.NewClient(disc.Port, disc.Token)
+
+			result, err := client.CreateSession(cmd.Context(), from, name, createType, prompt)
+			if err != nil {
+				return fmt.Errorf("create session: %w", err)
+			}
+
+			if result.Session != nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "Created session %s (id=%s, role=%s, path=%s)\n",
+					result.Session.Name, result.Session.ID, result.Session.Role, result.Session.Path)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "Session created (status=%s)\n", result.Status)
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "session name (required)")
+	cmd.Flags().StringVar(&createType, "type", "worker", "session type (worker, local)")
+	cmd.Flags().StringVar(&prompt, "prompt", "", "initial prompt for the session")
+	cmd.Flags().StringVar(&from, "from", "cli", "caller session ID")
 
 	return cmd
 }

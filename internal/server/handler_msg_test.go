@@ -405,6 +405,23 @@ func TestHandleMsgSend_EmptyTo(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
+func TestMsgSend_FromEqualsTo(t *testing.T) {
+	t.Parallel()
+	sessions := []server.SessionInfo{
+		{ID: "self-id", Name: "pm", Role: "pm", Window: "lc-aabbccdd", Status: "Running"},
+	}
+	_, port, _ := startTestServerWithMock(t, sessions)
+
+	resp := msgSend(t, port, "test-token", map[string]string{
+		"from": "self-id",
+		"to":   "self-id",
+		"type": "status",
+		"body": "hello myself",
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
 // --- Push-based delivery tests ---
 
 // TestMsgSend_PushDelivery_Success verifies that a message is pasted to the recipient's tmux pane.
