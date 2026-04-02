@@ -85,6 +85,12 @@ func (m *Manager) Sync(ctx context.Context) error {
 			return nil
 		}
 		m.log.Debug("sync.noSession", "action", "markAllOrphan", "count", len(m.store.All()))
+		// Crash diagnosis: log orphan marking.
+		if f, err := os.OpenFile("/tmp/lazyclaude/crash.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			fmt.Fprintf(f, "[%s] MARK_ALL_ORPHAN failCount=%d sessions=%d\n", time.Now().Format(time.RFC3339), m.syncFailCount, len(m.store.All()))
+			f.Sync()
+			f.Close()
+		}
 		m.store.MarkAllStatus(StatusOrphan)
 		return nil
 	}
