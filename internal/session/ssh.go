@@ -44,6 +44,12 @@ func writeRemoteScript(sess Session, mcpPort int, token string, opts *remoteScri
 	b.WriteString("LOCKEOF\n")
 	b.WriteString(fmt.Sprintf("trap 'rm -f \"%s\"' EXIT\n", lockFile))
 
+	// Export MCP connection info so the lazyclaude shell function can reach
+	// the MCP server via the SSH reverse tunnel.
+	b.WriteString(fmt.Sprintf("export _LC_MCP_PORT=%d\n", mcpPort))
+	b.WriteString(fmt.Sprintf("export _LC_MCP_TOKEN=%s\n", posixQuote(token)))
+	b.WriteString(lazyClaudeShellFunc())
+
 	// Write hooks settings file so activity state (Running, NeedsInput, etc.)
 	// is reported back to the TUI via MCP hook events.
 	hooksPath := ""
