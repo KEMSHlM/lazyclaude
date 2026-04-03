@@ -183,8 +183,14 @@ func (m *Manager) Create(ctx context.Context, dirPath, host string) (*Session, e
 		if mcpErr != nil {
 			return nil, fmt.Errorf("read MCP server info for SSH session: %w", mcpErr)
 		}
+		hooksJSON, hooksErr := config.BuildHooksJSON()
+		if hooksErr != nil {
+			return nil, fmt.Errorf("build hooks JSON for SSH session: %w", hooksErr)
+		}
 		var sshErr error
-		claudeCmd, sshErr = buildSSHCommand(sess, mcpPort, mcpToken, nil)
+		claudeCmd, sshErr = buildSSHCommand(sess, mcpPort, mcpToken, &remoteScriptOpts{
+			HooksJSON: hooksJSON,
+		})
 		if sshErr != nil {
 			return nil, fmt.Errorf("build SSH command: %w", sshErr)
 		}
