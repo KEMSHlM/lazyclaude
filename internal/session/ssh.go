@@ -48,7 +48,7 @@ func writeRemoteScript(sess Session, mcpPort int, token string, opts *remoteScri
 	// is reported back to the TUI via MCP hook events.
 	hooksPath := ""
 	if opts != nil && opts.HooksJSON != "" {
-		p := "/tmp/lazyclaude/hooks-settings.json"
+		p := fmt.Sprintf("/tmp/lazyclaude/hooks-settings-%s.json", sess.ID[:8])
 		b.WriteString("mkdir -p /tmp/lazyclaude\n")
 		b.WriteString(fmt.Sprintf("cat > '%s' << 'HOOKSEOF'\n", p))
 		b.WriteString(opts.HooksJSON + "\n")

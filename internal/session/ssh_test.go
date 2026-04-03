@@ -165,10 +165,10 @@ func TestWriteRemoteScript_HooksSettings(t *testing.T) {
 
 	// Hooks settings should be written via heredoc
 	assert.Contains(t, script, "HOOKSEOF")
-	assert.Contains(t, script, "hooks-settings.json")
+	assert.Contains(t, script, "hooks-settings-testhook.json")
 	assert.Contains(t, script, hooksJSON)
-	// Claude should be started with --settings pointing to the hooks file
-	assert.Contains(t, script, "--settings '/tmp/lazyclaude/hooks-settings.json'")
+	// Claude should be started with --settings pointing to the session-specific hooks file
+	assert.Contains(t, script, "--settings '/tmp/lazyclaude/hooks-settings-testhook.json'")
 }
 
 func TestWriteRemoteScript_NoHooksWithoutOpts(t *testing.T) {
