@@ -72,7 +72,7 @@ func BuildScript(cfg ScriptConfig) (string, error) {
 
 	// 2. MCP lock file setup
 	if cfg.MCP != nil {
-		if err := writeMCPSetup(&b, cfg.MCP); err != nil {
+		if err := writeMCPSetup(&b, cfg.MCP, cfg.SessionID); err != nil {
 			return "", err
 		}
 	}
@@ -122,8 +122,9 @@ func BuildScript(cfg ScriptConfig) (string, error) {
 	return b.String(), nil
 }
 
-// writeMCPSetup writes the MCP lock file creation and cleanup trap.
-func writeMCPSetup(b *strings.Builder, mcp *MCPConfig) error {
+// writeMCPSetup writes the MCP lock file creation and cleanup trap,
+// and sets up the lazyclaude shell function via BASH_ENV.
+func writeMCPSetup(b *strings.Builder, mcp *MCPConfig, sessionID string) error {
 	lockDir := "$HOME/.claude/ide"
 	lockFile := fmt.Sprintf("%s/%d.lock", lockDir, mcp.Port)
 
@@ -143,11 +144,12 @@ func writeMCPSetup(b *strings.Builder, mcp *MCPConfig) error {
 	b.WriteString("LOCKEOF\n")
 	b.WriteString(fmt.Sprintf("trap 'rm -f \"%s\"' EXIT\n", lockFile))
 
-	// Export MCP connection info so the lazyclaude shell function can reach
-	// the MCP server via the SSH reverse tunnel.
-	b.WriteString(fmt.Sprintf("export _LC_MCP_PORT=%d\n", mcp.Port))
-	b.WriteString(fmt.Sprintf("export _LC_MCP_TOKEN=%s\n", posixQuote(mcp.Token)))
-	b.WriteString(lazyClaudeShellFunc())
+	// Write shell function to temp file and set BASH_ENV for auto-sourcing.
+	prefix := sessionID
+	if len(prefix) > 8 {
+		prefix = prefix[:8]
+	}
+	writeLazyClaudeShellRC(b, mcp.Port, mcp.Token, prefix)
 	return nil
 }
 
@@ -268,6 +270,20 @@ lazyclaude() {
     *) echo "lazyclaude: unknown command '$1'" >&2; return 1;;
   esac
 }
-export -f _lc_json_esc lazyclaude
 `
+}
+
+// writeLazyClaudeShellRC writes the lazyclaude shell function and MCP env vars
+// to a temp file, then exports BASH_ENV so that Claude Code's Bash tool
+// auto-sources it. This replaces the old export -f approach which only works
+// in bash and does not survive exec "$SHELL" when $SHELL is zsh.
+func writeLazyClaudeShellRC(b *strings.Builder, port int, token, sessionPrefix string) {
+	rcPath := fmt.Sprintf("/tmp/lazyclaude/shellrc-%s.sh", sessionPrefix)
+	b.WriteString("mkdir -p /tmp/lazyclaude\n")
+	b.WriteString(fmt.Sprintf("cat > '%s' << 'SHELLRCEOF'\n", rcPath))
+	b.WriteString(fmt.Sprintf("export _LC_MCP_PORT=%d\n", port))
+	b.WriteString(fmt.Sprintf("export _LC_MCP_TOKEN=%s\n", posixQuote(token)))
+	b.WriteString(lazyClaudeShellFunc())
+	b.WriteString("SHELLRCEOF\n")
+	b.WriteString(fmt.Sprintf("export BASH_ENV='%s'\n", rcPath))
 }
