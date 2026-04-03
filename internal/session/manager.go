@@ -228,15 +228,19 @@ func (m *Manager) createWorktreeSession(ctx context.Context, opts worktreeOpts) 
 		}
 	}
 
-	if opts.SkipGitAdd && opts.WtPath != "" && opts.Host == "" {
-		if _, err := os.Stat(opts.WtPath); err != nil {
-			return nil, fmt.Errorf("worktree path does not exist: %w", err)
+	runner := NewGitRunner(opts.Host)
+
+	if opts.SkipGitAdd && opts.WtPath != "" {
+		exists, err := runner.Exists(ctx, opts.WtPath)
+		if err != nil {
+			return nil, fmt.Errorf("check worktree path: %w", err)
+		}
+		if !exists {
+			return nil, fmt.Errorf("worktree path does not exist: %s", opts.WtPath)
 		}
 	}
 
 	// Read MCP info outside the lock (file I/O).
-	// Used only to decide whether the Worker prompt (CLI-based) or the
-	// basic worktree isolation prompt is injected.
 	mcpPort, mcpToken, _ := m.readMCPInfo()
 
 	m.mu.Lock()
@@ -252,7 +256,7 @@ func (m *Manager) createWorktreeSession(ctx context.Context, opts worktreeOpts) 
 	}
 
 	if !opts.SkipGitAdd {
-		if err := createGitWorktree(ctx, opts.ProjectRoot, wtPath, opts.Name, opts.Host); err != nil {
+		if err := CreateWorktreeWithRunner(ctx, runner, opts.ProjectRoot, wtPath, opts.Name); err != nil {
 			return nil, fmt.Errorf("git worktree: %w", err)
 		}
 	}
@@ -338,7 +342,6 @@ func (m *Manager) launchSession(ctx context.Context, sess Session, claudeCmd, st
 // ResumeWorktree, and CreateWorkerSession. Caller must hold m.mu.
 func (m *Manager) launchWorktreeSession(ctx context.Context, name, wtPath, userPrompt, projectRoot, host string, role Role, mcpPort int, mcpToken string) (*Session, error) {
 	id := uuid.New().String()
-
 	systemPrompt := BuildWorkerPrompt(wtPath, projectRoot, id)
 
 	sess := Session{
@@ -351,58 +354,83 @@ func (m *Manager) launchWorktreeSession(ctx context.Context, name, wtPath, userP
 		UpdatedAt: time.Now(),
 	}
 
-	var claudeCmd string
-	launchSuccess := false
-	if host != "" {
-		// SSH worktree session: pass system/user prompts via heredoc in the remote script.
-		scriptOpts := &remoteScriptOpts{
-			SystemPrompt: systemPrompt,
-			UserPrompt:   userPrompt,
+	claudeCmd, startDir, cleanupFn, err := m.buildLaunchCommand(sess, systemPrompt, userPrompt, mcpPort, mcpToken)
+	if err != nil {
+		return nil, err
+	}
+	if cleanupFn != nil {
+		launchSuccess := false
+		defer func() {
+			if !launchSuccess {
+				cleanupFn()
+			}
+		}()
+		result, launchErr := m.launchSession(ctx, sess, claudeCmd, startDir, claudeEnv(id))
+		if launchErr == nil {
+			launchSuccess = true
 		}
-		var sshErr error
-		claudeCmd, sshErr = buildSSHCommand(sess, mcpPort, mcpToken, scriptOpts)
+		return result, launchErr
+	}
+	return m.launchSession(ctx, sess, claudeCmd, startDir, claudeEnv(id))
+}
+
+// buildLaunchCommand builds the tmux command for launching Claude Code.
+// Returns: claudeCmd, startDir, optional cleanup function, error.
+// For SSH: builds SSH command with BuildScript (no cleanup needed).
+// For local: writes temp launcher script (cleanup on failure).
+func (m *Manager) buildLaunchCommand(sess Session, systemPrompt, userPrompt string, mcpPort int, mcpToken string) (claudeCmd string, startDir string, cleanup func(), err error) {
+	hooksJSON, _ := config.BuildHooksJSON()
+
+	cfg := ScriptConfig{
+		SessionID:    sess.ID,
+		WorkDir:      sess.Path,
+		Flags:        sess.Flags,
+		SystemPrompt: systemPrompt,
+		UserPrompt:   userPrompt,
+		HooksJSON:    hooksJSON,
+	}
+
+	if sess.Host != "" {
+		cfg.MCP = &MCPConfig{Port: mcpPort, Token: mcpToken}
+		scriptContent, buildErr := BuildScript(cfg)
+		if buildErr != nil {
+			return "", "", nil, fmt.Errorf("build script: %w", buildErr)
+		}
+		sshCmd, sshErr := buildSSHCommandFromScript(sess.Host, scriptContent, mcpPort)
 		if sshErr != nil {
-			return nil, fmt.Errorf("build SSH command: %w", sshErr)
+			return "", "", nil, fmt.Errorf("build SSH command: %w", sshErr)
 		}
 
 		// Write pending window file for MCP server association.
 		pendingFile := filepath.Join(m.paths.RuntimeDir, "lazyclaude-pending-window")
 		if writeErr := os.WriteFile(pendingFile, []byte(sess.WindowName()), 0o600); writeErr != nil {
-			m.log.Warn("launchWorktree.pending-window.write", "err", writeErr)
+			m.log.Warn("buildLaunchCommand.pending-window.write", "err", writeErr)
 		}
-	} else {
-		launcher, err := writeWorktreeLauncher(systemPrompt, userPrompt, m.paths.RuntimeDir)
-		if err != nil {
-			return nil, fmt.Errorf("write launcher: %w", err)
-		}
-		defer func() {
-			if !launchSuccess {
-				os.Remove(launcher)
-			}
-		}()
 
-		// shell.Quote wraps the temp path in single quotes ('...').
-		// OS temp paths never contain single quotes, so this is safe.
-		claudeCmd = fmt.Sprintf("exec \"$SHELL\" -lic 'exec sh %s'", shell.Quote(launcher))
+		abs, _ := filepath.Abs(".")
+		return sshCmd, abs, nil, nil
 	}
 
-	m.log.Info("launchWorktree", "name", name, "id", id[:8], "path", wtPath, "host", host, "role", role)
+	// Local: write BuildScript output to a temp file.
+	cfg.SelfDelete = true
+	scriptContent, buildErr := BuildScript(cfg)
+	if buildErr != nil {
+		return "", "", nil, fmt.Errorf("build script: %w", buildErr)
+	}
+	f, fErr := os.CreateTemp("", "lazyclaude-wt-*.sh")
+	if fErr != nil {
+		return "", "", nil, fmt.Errorf("create temp script: %w", fErr)
+	}
+	if _, wErr := f.WriteString(scriptContent); wErr != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", "", nil, fmt.Errorf("write launcher script: %w", wErr)
+	}
+	f.Close()
 
-	env := claudeEnv(id)
-	startDir := wtPath
-	if host != "" {
-		// SSH sessions: tmux starts locally, the SSH command handles the remote path.
-		abs, err := filepath.Abs(".")
-		if err != nil {
-			abs = "."
-		}
-		startDir = abs
-	}
-	result, err := m.launchSession(ctx, sess, claudeCmd, startDir, env)
-	if err == nil {
-		launchSuccess = true
-	}
-	return result, err
+	launcher := f.Name()
+	claudeCmd = fmt.Sprintf("exec \"$SHELL\" -lic 'exec bash %s'", shell.Quote(launcher))
+	return claudeCmd, sess.Path, func() { os.Remove(launcher) }, nil
 }
 
 // createGitWorktree creates a git worktree at wtPath with a new branch.
@@ -737,54 +765,31 @@ func (m *Manager) CreatePMSession(ctx context.Context, projectRoot, host string)
 		UpdatedAt: time.Now(),
 	}
 
-	var claudeCmd string
-	launchSuccess := false
-	if host != "" {
-		if mcpErr != nil {
-			return nil, fmt.Errorf("read MCP server info for SSH PM session: %w", mcpErr)
-		}
-		scriptOpts := &remoteScriptOpts{
-			SystemPrompt: systemPrompt,
-		}
-		var sshErr error
-		claudeCmd, sshErr = buildSSHCommand(sess, mcpPort, mcpToken, scriptOpts)
-		if sshErr != nil {
-			return nil, fmt.Errorf("build SSH command: %w", sshErr)
-		}
+	if host != "" && mcpErr != nil {
+		return nil, fmt.Errorf("read MCP server info for SSH PM session: %w", mcpErr)
+	}
 
-		pendingFile := filepath.Join(m.paths.RuntimeDir, "lazyclaude-pending-window")
-		if writeErr := os.WriteFile(pendingFile, []byte(sess.WindowName()), 0o600); writeErr != nil {
-			m.log.Warn("createPMSession.pending-window.write", "err", writeErr)
-		}
-	} else {
-		launcher, err := writeWorktreeLauncher(systemPrompt, "", m.paths.RuntimeDir)
-		if err != nil {
-			return nil, fmt.Errorf("write launcher: %w", err)
-		}
-		defer func() {
-			if !launchSuccess {
-				os.Remove(launcher)
-			}
-		}()
-		claudeCmd = fmt.Sprintf("exec \"$SHELL\" -lic 'exec sh %s'", shell.Quote(launcher))
+	claudeCmd, startDir, cleanupFn, buildErr := m.buildLaunchCommand(sess, systemPrompt, "", mcpPort, mcpToken)
+	if buildErr != nil {
+		return nil, buildErr
 	}
 
 	m.log.Info("createPMSession", "id", id[:8], "path", projectRoot, "host", host)
 
-	env := claudeEnv(id)
-	startDir := projectRoot
-	if host != "" {
-		abs, err := filepath.Abs(".")
-		if err != nil {
-			abs = "."
+	if cleanupFn != nil {
+		launchSuccess := false
+		defer func() {
+			if !launchSuccess {
+				cleanupFn()
+			}
+		}()
+		result, launchErr := m.launchSession(ctx, sess, claudeCmd, startDir, claudeEnv(id))
+		if launchErr == nil {
+			launchSuccess = true
 		}
-		startDir = abs
+		return result, launchErr
 	}
-	result, err := m.launchSession(ctx, sess, claudeCmd, startDir, env)
-	if err == nil {
-		launchSuccess = true
-	}
-	return result, err
+	return m.launchSession(ctx, sess, claudeCmd, startDir, claudeEnv(id))
 }
 
 // CreateWorkerSession creates a git worktree and launches Claude Code with the
