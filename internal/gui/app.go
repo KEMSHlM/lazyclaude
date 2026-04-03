@@ -464,3 +464,14 @@ func (a *App) setStatus(g *gocui.Gui, msg string) {
 	// re-renders the log content over this status message.
 	a.logRender.modTime = -1
 }
+
+// showError displays an error in both the logs panel and the main panel
+// so it is immediately visible regardless of which panel the user is viewing.
+func (a *App) showError(g *gocui.Gui, msg string) {
+	a.setStatus(g, msg)
+	if v, err := g.View("main"); err == nil {
+		v.Clear()
+		fmt.Fprintln(v, "")
+		fmt.Fprintln(v, "  "+msg)
+	}
+}

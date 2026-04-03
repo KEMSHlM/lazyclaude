@@ -133,10 +133,9 @@ func TestBuildScript_SystemPrompt(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Contains(t, script, "--append-system-prompt")
-	// Prompt should be base64-encoded to avoid all quoting issues
+	// Prompt should be base64-decoded to a temp file
 	assert.Contains(t, script, "base64 -d")
-	// Variable must be exported so the login shell can expand it
-	assert.Contains(t, script, "export _LC_SYSPROMPT=")
+	assert.Contains(t, script, "sysprompt-$$.txt")
 }
 
 func TestBuildScript_SystemPrompt_WithQuotes(t *testing.T) {
@@ -260,9 +259,17 @@ func TestBuildScript_SSHWorktree_Full(t *testing.T) {
 	assert.Contains(t, script, "--append-system-prompt")
 	assert.Contains(t, script, `exec "$SHELL" -lic`)
 
-	// No raw quotes from prompts (all base64-encoded)
+	// lazyclaude shell function present for SSH sessions
+	assert.Contains(t, script, "lazyclaude()")
+	assert.Contains(t, script, "export -f _lc_json_esc lazyclaude")
+	assert.Contains(t, script, "export _LC_MCP_PORT=9876")
+
+	// No raw quotes from prompts (all base64-encoded to files)
 	assert.NotContains(t, script, "You are a Worker")
 	assert.NotContains(t, script, "Fix the authentication")
+
+	// Exec line always uses single quotes
+	assert.Contains(t, script, `exec "$SHELL" -lic 'exec claude`)
 }
 
 // --- BuildScript: full local worktree scenario ---
@@ -284,4 +291,8 @@ func TestBuildScript_LocalWorktree_Full(t *testing.T) {
 	assert.Contains(t, script, "hooks-settings")  // Hooks still injected
 	assert.Contains(t, script, "--settings")
 	assert.Contains(t, script, "--append-system-prompt")
+
+	// Local sessions: no lazyclaude shell function
+	assert.NotContains(t, script, "lazyclaude()")
+	assert.NotContains(t, script, "_LC_MCP_PORT")
 }

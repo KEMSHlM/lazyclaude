@@ -55,7 +55,7 @@ type MCPConfig struct {
 // The generated script follows a strict section order:
 //  1. Shebang
 //  2. Self-delete (if SelfDelete)
-//  3. MCP lock file setup (if MCP != nil)
+//  3. MCP lock file setup + lazyclaude shell function (if MCP != nil)
 //  4. cd WorkDir
 //  5. Hooks settings file (if HooksJSON non-empty)
 //  6. System/user prompt variables (base64-encoded)
@@ -93,28 +93,30 @@ func BuildScript(cfg ScriptConfig) (string, error) {
 		hooksPath = p
 	}
 
-	// 5. System prompt and user prompt via base64 (avoids all quoting issues).
-	// Variables are exported so the login shell (exec "$SHELL" -lic '...')
-	// can expand them inside the single-quoted -lic argument.
-	sysPromptVar := ""
+	// 5. System prompt and user prompt via temp files (avoids all quoting issues).
+	// Prompts are base64-decoded into temp files. The exec line reads them via
+	// $(cat file), so shell metacharacters in prompts (backticks, $, ", etc.)
+	// never appear in the command string.
+	sysPromptFile := ""
 	if cfg.SystemPrompt != "" {
+		sysPromptFile = "/tmp/lazyclaude/sysprompt-$$.txt"
 		encoded := base64.StdEncoding.EncodeToString([]byte(cfg.SystemPrompt))
-		b.WriteString(fmt.Sprintf("export _LC_SYSPROMPT=$(echo %s | base64 -d)\n", encoded))
-		sysPromptVar = "_LC_SYSPROMPT"
+		b.WriteString(fmt.Sprintf("echo %s | base64 -d > %s\n", encoded, sysPromptFile))
 	}
 
-	userPromptVar := ""
+	userPromptFile := ""
 	if strings.TrimSpace(cfg.UserPrompt) != "" {
+		userPromptFile = "/tmp/lazyclaude/userprompt-$$.txt"
 		encoded := base64.StdEncoding.EncodeToString([]byte(cfg.UserPrompt))
-		b.WriteString(fmt.Sprintf("export _LC_USERPROMPT=$(echo %s | base64 -d)\n", encoded))
-		userPromptVar = "_LC_USERPROMPT"
+		b.WriteString(fmt.Sprintf("echo %s | base64 -d > %s\n", encoded, userPromptFile))
 	}
 
 	// 6. Auth environment variables
 	writeAuthEnv(&b)
 
-	// 7. Build the claude command and exec line
-	claudeCmd := buildClaudeCmd(cfg.Flags, hooksPath, sysPromptVar, userPromptVar)
+	// 7. Build the claude command and exec line.
+	// Always uses single quotes — prompt content is read from files at runtime.
+	claudeCmd := buildClaudeCmd(cfg.Flags, hooksPath, sysPromptFile, userPromptFile)
 	b.WriteString(fmt.Sprintf("exec \"$SHELL\" -lic 'exec %s'\n", claudeCmd))
 
 	return b.String(), nil
@@ -140,6 +142,12 @@ func writeMCPSetup(b *strings.Builder, mcp *MCPConfig) error {
 	b.WriteString(string(lockJSON) + "\n")
 	b.WriteString("LOCKEOF\n")
 	b.WriteString(fmt.Sprintf("trap 'rm -f \"%s\"' EXIT\n", lockFile))
+
+	// Export MCP connection info so the lazyclaude shell function can reach
+	// the MCP server via the SSH reverse tunnel.
+	b.WriteString(fmt.Sprintf("export _LC_MCP_PORT=%d\n", mcp.Port))
+	b.WriteString(fmt.Sprintf("export _LC_MCP_TOKEN=%s\n", posixQuote(mcp.Token)))
+	b.WriteString(lazyClaudeShellFunc())
 	return nil
 }
 
@@ -155,16 +163,10 @@ func writeAuthEnv(b *strings.Builder) {
 
 // buildClaudeCmd constructs the claude command string for the -lic argument.
 //
-// The exec line uses single quotes: exec "$SHELL" -lic 'exec claude ...'.
-// The outer bash passes the single-quoted content as a literal string to the
-// login shell. The login shell then interprets that string as a command,
-// expanding "$_LC_SYSPROMPT" etc. from exported environment variables.
-// This is safe because:
-//  1. Prompt values are base64-decoded into exported variables before exec
-//  2. The -lic argument only contains variable NAMES (not values)
-//  3. Double quotes around "$var" inside the login shell command prevent
-//     word splitting of the expanded value
-func buildClaudeCmd(flags []string, hooksPath, sysPromptVar, userPromptVar string) string {
+// The exec line always uses single quotes: exec "$SHELL" -lic 'exec claude ...'.
+// Prompt content is read from temp files via $(cat file) inside the login shell,
+// so shell metacharacters in prompts never appear in the command string.
+func buildClaudeCmd(flags []string, hooksPath, sysPromptFile, userPromptFile string) string {
 	var parts []string
 	parts = append(parts, "claude")
 
@@ -176,13 +178,96 @@ func buildClaudeCmd(flags []string, hooksPath, sysPromptVar, userPromptVar strin
 		parts = append(parts, f)
 	}
 
-	if sysPromptVar != "" {
-		parts = append(parts, "--append-system-prompt", fmt.Sprintf(`"$%s"`, sysPromptVar))
+	if sysPromptFile != "" {
+		parts = append(parts, "--append-system-prompt", fmt.Sprintf(`"$(cat %s)"`, sysPromptFile))
 	}
 
-	if userPromptVar != "" {
-		parts = append(parts, fmt.Sprintf(`"$%s"`, userPromptVar))
+	if userPromptFile != "" {
+		parts = append(parts, fmt.Sprintf(`"$(cat %s)"`, userPromptFile))
 	}
 
 	return strings.Join(parts, " ")
+}
+
+// lazyClaudeShellFunc returns a bash snippet defining a lazyclaude() shell
+// function for SSH remote sessions. Wraps curl calls to the MCP server so
+// "lazyclaude msg send", "lazyclaude msg create", and "lazyclaude sessions"
+// work without the binary. All fields are escaped via _lc_json_esc.
+func lazyClaudeShellFunc() string {
+	return `_lc_json_esc() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e $'s/\r/\\\\r/g' -e $'s/\t/\\\\t/g' | awk '{if(NR>1)printf "\\n";printf "%s",$0}'
+}
+lazyclaude() {
+  local _lc_base="http://127.0.0.1:${_LC_MCP_PORT}"
+  local _lc_auth="X-Claude-Code-Ide-Authorization: ${_LC_MCP_TOKEN}"
+  case "$1" in
+    msg)
+      shift
+      case "$1" in
+        send)
+          shift
+          local _lc_from="cli" _lc_type="status"
+          while [ $# -gt 0 ]; do
+            case "$1" in
+              --from) _lc_from="$2"; shift 2;;
+              --type) _lc_type="$2"; shift 2;;
+              *) break;;
+            esac
+          done
+          if [ $# -lt 2 ]; then
+            echo "usage: lazyclaude msg send [--from ID] [--type TYPE] <to> <body...>" >&2
+            return 1
+          fi
+          local _lc_to="$1"; shift
+          _lc_from=$(_lc_json_esc "${_lc_from}")
+          _lc_to=$(_lc_json_esc "${_lc_to}")
+          _lc_type=$(_lc_json_esc "${_lc_type}")
+          local _lc_body
+          _lc_body=$(_lc_json_esc "$*")
+          curl -sf -X POST "${_lc_base}/msg/send" \
+            -H "Content-Type: application/json" \
+            -H "${_lc_auth}" \
+            -d "{\"from\":\"${_lc_from}\",\"to\":\"${_lc_to}\",\"type\":\"${_lc_type}\",\"body\":\"${_lc_body}\"}"
+          echo
+          ;;
+        create)
+          shift
+          local _lc_from="cli" _lc_name="" _lc_type="worker" _lc_prompt=""
+          while [ $# -gt 0 ]; do
+            case "$1" in
+              --from) _lc_from="$2"; shift 2;;
+              --name) _lc_name="$2"; shift 2;;
+              --type) _lc_type="$2"; shift 2;;
+              --prompt) _lc_prompt="$2"; shift 2;;
+              *) echo "lazyclaude msg create: unknown option '$1'" >&2; return 1;;
+            esac
+          done
+          if [ -z "${_lc_name}" ]; then
+            echo "usage: lazyclaude msg create --name NAME [--from ID] [--type TYPE] [--prompt TEXT]" >&2
+            return 1
+          fi
+          _lc_from=$(_lc_json_esc "${_lc_from}")
+          _lc_name=$(_lc_json_esc "${_lc_name}")
+          _lc_type=$(_lc_json_esc "${_lc_type}")
+          local _lc_esc_prompt
+          _lc_esc_prompt=$(_lc_json_esc "${_lc_prompt}")
+          curl -sf -X POST "${_lc_base}/msg/create" \
+            -H "Content-Type: application/json" \
+            -H "${_lc_auth}" \
+            -d "{\"from\":\"${_lc_from}\",\"name\":\"${_lc_name}\",\"type\":\"${_lc_type}\",\"prompt\":\"${_lc_esc_prompt}\"}"
+          echo
+          ;;
+        *) echo "lazyclaude msg: unknown subcommand '$1'" >&2; return 1;;
+      esac
+      ;;
+    sessions)
+      curl -sf "${_lc_base}/msg/sessions" \
+        -H "${_lc_auth}"
+      echo
+      ;;
+    *) echo "lazyclaude: unknown command '$1'" >&2; return 1;;
+  esac
+}
+export -f _lc_json_esc lazyclaude
+`
 }

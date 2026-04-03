@@ -267,7 +267,7 @@ func (a *App) createSession(localPath string) {
 	}
 	if err := a.sessions.Create(path, host); err != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			a.showError(g, fmt.Sprintf("Error: %v", err))
 			return nil
 		})
 		return
@@ -288,7 +288,7 @@ func (a *App) DeleteSession() {
 	}
 	if err := a.sessions.Delete(sess.ID); err != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			a.showError(g, fmt.Sprintf("Error: %v", err))
 			return nil
 		})
 		return
@@ -399,7 +399,7 @@ func (a *App) StartPMSession() {
 		err := a.sessions.CreatePMSession(projectRoot, host)
 		a.gui.Update(func(g *gocui.Gui) error {
 			if err != nil {
-				a.setStatus(g, fmt.Sprintf("PM error: %v", err))
+				a.showError(g, fmt.Sprintf("PM error: %v", err))
 			} else {
 				a.setStatus(g, "PM session started")
 			}
@@ -430,7 +430,7 @@ func (a *App) SelectWorktree() {
 		items, err := a.sessions.ListWorktrees(projectRoot, host)
 		a.gui.Update(func(g *gocui.Gui) error {
 			if err != nil {
-				a.setStatus(g, fmt.Sprintf("Error: %v", err))
+				a.showError(g, fmt.Sprintf("Error: %v", err))
 				return nil
 			}
 			if len(items) == 0 {
@@ -454,7 +454,7 @@ func (a *App) PurgeOrphans() {
 	count, err := a.sessions.PurgeOrphans()
 	if err != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			a.showError(g, fmt.Sprintf("Error: %v", err))
 			return nil
 		})
 		return
