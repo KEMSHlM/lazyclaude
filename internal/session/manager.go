@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -355,7 +356,7 @@ func (m *Manager) launchWorktreeSession(ctx context.Context, name, wtPath, userP
 
 	claudeCmd, startDir, cleanupFn, err := m.buildLaunchCommand(sess, systemPrompt, userPrompt, mcpPort, mcpToken)
 	if err != nil {
-		return nil, err
+		return m.launchErrorSession(ctx, sess, err)
 	}
 	if cleanupFn != nil {
 		launchSuccess := false
@@ -373,9 +374,64 @@ func (m *Manager) launchWorktreeSession(ctx context.Context, name, wtPath, userP
 	return m.launchSession(ctx, sess, claudeCmd, startDir, claudeEnv(id))
 }
 
+// launchErrorSession creates a tmux window that displays an error message.
+// This makes build-time errors visible in the TUI's main pane instead of
+// being silently swallowed.
+func (m *Manager) launchErrorSession(ctx context.Context, sess Session, buildErr error) (*Session, error) {
+	errMsg := fmt.Sprintf("echo 'lazyclaude: session launch failed'; echo; echo '%s'; echo; echo 'Press Enter to close'; read",
+		strings.ReplaceAll(buildErr.Error(), "'", "'\\''"))
+	abs, _ := filepath.Abs(".")
+	result, launchErr := m.launchSession(ctx, sess, errMsg, abs, claudeEnv(sess.ID))
+	if launchErr != nil {
+		return nil, fmt.Errorf("%w (additionally, tmux window creation failed: %v)", buildErr, launchErr)
+	}
+	return result, nil
+}
+
+// writeSSHLauncher writes a two-phase SSH launcher script:
+//  1. Transfer the base64-encoded remote script to a temp file on the remote
+//  2. exec an interactive SSH session that runs the script with bash
+//
+// This avoids both tmux's command length limit (~2KB) and shell quoting issues.
+// The first SSH is non-interactive (file transfer); the second has -t for TTY.
+func writeSSHLauncher(host, scriptContent, sessionID string, mcpPort int) (string, error) {
+	encoded := base64.StdEncoding.EncodeToString([]byte(scriptContent))
+	sshHost, port := splitHostPort(host)
+
+	portFlag := ""
+	if port != "" {
+		portFlag = fmt.Sprintf("-p %s ", port)
+	}
+
+	remoteScript := fmt.Sprintf("/tmp/lazyclaude/remote-%s.sh", sessionID[:8])
+
+	f, err := os.CreateTemp("", "lazyclaude-ssh-*.sh")
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("#!/bin/bash\n")
+	sb.WriteString("rm -f \"$0\"\n")
+	// Phase 1: write decoded script to remote temp file (non-interactive).
+	sb.WriteString(fmt.Sprintf("ssh %s%s 'mkdir -p /tmp/lazyclaude && printf \"%%s\" \"%s\" | base64 -d > %s' 2>/dev/null\n",
+		portFlag, sshHost, encoded, remoteScript))
+	// Phase 2: interactive SSH with TTY, reverse tunnel, and bash execution.
+	sb.WriteString(fmt.Sprintf("exec ssh -t -o ServerAliveInterval=30 -o ServerAliveCountMax=3 %s-R %d:127.0.0.1:%d %s 'bash %s; rm -f %s'\n",
+		portFlag, mcpPort, mcpPort, sshHost, remoteScript, remoteScript))
+
+	if _, err := f.WriteString(sb.String()); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", fmt.Errorf("write SSH launcher: %w", err)
+	}
+	f.Close()
+	return f.Name(), nil
+}
+
 // buildLaunchCommand builds the tmux command for launching Claude Code.
 // Returns: claudeCmd, startDir, optional cleanup function, error.
-// For SSH: builds SSH command with BuildScript (no cleanup needed).
+// For SSH: writes a two-phase launcher script (cleanup on failure).
 // For local: writes temp launcher script (cleanup on failure).
 func (m *Manager) buildLaunchCommand(sess Session, systemPrompt, userPrompt string, mcpPort int, mcpToken string) (claudeCmd string, startDir string, cleanup func(), err error) {
 	hooksJSON, hooksErr := config.BuildHooksJSON()
@@ -398,9 +454,12 @@ func (m *Manager) buildLaunchCommand(sess Session, systemPrompt, userPrompt stri
 		if buildErr != nil {
 			return "", "", nil, fmt.Errorf("build script: %w", buildErr)
 		}
-		sshCmd, sshErr := buildSSHCommandFromScript(sess.Host, scriptContent, mcpPort)
-		if sshErr != nil {
-			return "", "", nil, fmt.Errorf("build SSH command: %w", sshErr)
+
+		// Write a two-phase SSH launcher to avoid tmux command length limits
+		// and shell quoting issues with long base64 payloads.
+		launcher, launcherErr := writeSSHLauncher(sess.Host, scriptContent, sess.ID, mcpPort)
+		if launcherErr != nil {
+			return "", "", nil, fmt.Errorf("write SSH launcher: %w", launcherErr)
 		}
 
 		// Write pending window file for MCP server association.
@@ -413,7 +472,7 @@ func (m *Manager) buildLaunchCommand(sess Session, systemPrompt, userPrompt stri
 		if absErr != nil {
 			abs = "."
 		}
-		return sshCmd, abs, nil, nil
+		return fmt.Sprintf("exec bash %s", shell.Quote(launcher)), abs, func() { os.Remove(launcher) }, nil
 	}
 
 	// Local: write BuildScript output to a temp file.
@@ -698,7 +757,7 @@ func (m *Manager) CreatePMSession(ctx context.Context, projectRoot, host string)
 
 	claudeCmd, startDir, cleanupFn, buildErr := m.buildLaunchCommand(sess, systemPrompt, "", mcpPort, mcpToken)
 	if buildErr != nil {
-		return nil, buildErr
+		return m.launchErrorSession(ctx, sess, buildErr)
 	}
 
 	m.log.Info("createPMSession", "id", id[:8], "path", projectRoot, "host", host)

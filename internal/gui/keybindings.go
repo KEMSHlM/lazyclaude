@@ -96,7 +96,7 @@ func (a *App) setupGlobalKeybindings() error {
 		newName := strings.TrimSpace(v.TextArea.GetContent())
 		if newName != "" && a.dialog.RenameID != "" {
 			if err := a.sessions.Rename(a.dialog.RenameID, newName); err != nil {
-				a.setStatus(g, fmt.Sprintf("Error: %v", err))
+				a.showError(g, fmt.Sprintf("Error: %v", err))
 			} else {
 				a.setStatus(g, "Renamed to "+newName)
 			}
@@ -128,7 +128,7 @@ func (a *App) setupGlobalKeybindings() error {
 
 		// Validate before closing the dialog so errors appear inline.
 		if err := session.ValidateWorktreeName(branchName); err != nil {
-			a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			a.showError(g, fmt.Sprintf("Error: %v", err))
 			return nil
 		}
 
@@ -142,7 +142,7 @@ func (a *App) setupGlobalKeybindings() error {
 			}
 			if err := a.sessions.CreateWorktree(branchName, userPrompt, projectRoot, host); err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
-					a.setStatus(g, fmt.Sprintf("Error: %v", err))
+					a.showError(g, fmt.Sprintf("Error: %v", err))
 					return nil
 				})
 				return
@@ -280,7 +280,7 @@ func (a *App) setupGlobalKeybindings() error {
 			}
 			if err := a.sessions.ResumeWorktree(wtPath, userPrompt, projectRoot, host); err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
-					a.setStatus(g, fmt.Sprintf("Error: %v", err))
+					a.showError(g, fmt.Sprintf("Error: %v", err))
 					return nil
 				})
 				return
