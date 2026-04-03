@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -379,7 +378,10 @@ func (m *Manager) launchWorktreeSession(ctx context.Context, name, wtPath, userP
 // For SSH: builds SSH command with BuildScript (no cleanup needed).
 // For local: writes temp launcher script (cleanup on failure).
 func (m *Manager) buildLaunchCommand(sess Session, systemPrompt, userPrompt string, mcpPort int, mcpToken string) (claudeCmd string, startDir string, cleanup func(), err error) {
-	hooksJSON, _ := config.BuildHooksJSON()
+	hooksJSON, hooksErr := config.BuildHooksJSON()
+	if hooksErr != nil {
+		return "", "", nil, fmt.Errorf("build hooks JSON: %w", hooksErr)
+	}
 
 	cfg := ScriptConfig{
 		SessionID:    sess.ID,
@@ -407,7 +409,10 @@ func (m *Manager) buildLaunchCommand(sess Session, systemPrompt, userPrompt stri
 			m.log.Warn("buildLaunchCommand.pending-window.write", "err", writeErr)
 		}
 
-		abs, _ := filepath.Abs(".")
+		abs, absErr := filepath.Abs(".")
+		if absErr != nil {
+			abs = "."
+		}
 		return sshCmd, abs, nil, nil
 	}
 
@@ -433,84 +438,6 @@ func (m *Manager) buildLaunchCommand(sess Session, systemPrompt, userPrompt stri
 	return claudeCmd, sess.Path, func() { os.Remove(launcher) }, nil
 }
 
-// createGitWorktree creates a git worktree at wtPath with a new branch.
-// Returns an error if projectRoot is not a git repository.
-// If the branch already exists, it checks out the existing branch.
-// If the worktree path already exists (reuse), this is a no-op.
-// When host is non-empty, all commands are executed on the remote host via SSH.
-func createGitWorktree(ctx context.Context, projectRoot, wtPath, branch, host string) error {
-	if host != "" {
-		return createGitWorktreeRemote(ctx, projectRoot, wtPath, branch, host)
-	}
-
-	// Verify projectRoot is a git repository.
-	check := exec.CommandContext(ctx, "git", "rev-parse", "--git-dir")
-	check.Dir = projectRoot
-	if err := check.Run(); err != nil {
-		return fmt.Errorf("not a git repository: %s", projectRoot)
-	}
-
-	// If the worktree directory already exists, assume reuse.
-	if _, err := os.Stat(wtPath); err == nil {
-		return nil
-	}
-
-	// Ensure parent directory exists.
-	if err := os.MkdirAll(filepath.Dir(wtPath), 0o755); err != nil {
-		return fmt.Errorf("create parent dir: %w", err)
-	}
-
-	// Try creating worktree with a new branch first.
-	cmd := exec.CommandContext(ctx, "git", "worktree", "add", "-b", branch, wtPath)
-	cmd.Dir = projectRoot
-	if out, err := cmd.CombinedOutput(); err != nil {
-		// Branch may already exist — try without -b.
-		cmd2 := exec.CommandContext(ctx, "git", "worktree", "add", wtPath, branch)
-		cmd2.Dir = projectRoot
-		if out2, err2 := cmd2.CombinedOutput(); err2 != nil {
-			return fmt.Errorf("%s\n%s", strings.TrimSpace(string(out)), strings.TrimSpace(string(out2)))
-		}
-		_ = out
-	}
-	return nil
-}
-
-// createGitWorktreeRemote creates a git worktree on a remote host via SSH.
-func createGitWorktreeRemote(ctx context.Context, projectRoot, wtPath, branch, host string) error {
-	sq := posixQuote // alias for readability
-
-	// Verify projectRoot is a git repository on remote.
-	checkCmd := fmt.Sprintf("cd %s && git rev-parse --git-dir", sq(projectRoot))
-	if _, err := RunSSHCommand(ctx, host, checkCmd); err != nil {
-		return fmt.Errorf("not a git repository: %s", projectRoot)
-	}
-
-	// Check if worktree directory already exists on remote (reuse).
-	existsCmd := fmt.Sprintf("test -d %s && echo exists", sq(wtPath))
-	if out, err := RunSSHCommand(ctx, host, existsCmd); err == nil && strings.TrimSpace(string(out)) == "exists" {
-		return nil
-	}
-
-	// Ensure parent directory exists on remote.
-	mkdirCmd := fmt.Sprintf("mkdir -p %s", sq(filepath.Dir(wtPath)))
-	if _, err := RunSSHCommand(ctx, host, mkdirCmd); err != nil {
-		return fmt.Errorf("create parent dir on remote: %w", err)
-	}
-
-	// Try creating worktree with a new branch first.
-	addCmd := fmt.Sprintf("cd %s && git worktree add -b %s %s 2>&1", sq(projectRoot), sq(branch), sq(wtPath))
-	out, err := RunSSHCommand(ctx, host, addCmd)
-	if err == nil {
-		return nil
-	}
-	// Branch may already exist — try without -b.
-	addCmd2 := fmt.Sprintf("cd %s && git worktree add %s %s 2>&1", sq(projectRoot), sq(wtPath), sq(branch))
-	out2, err2 := RunSSHCommand(ctx, host, addCmd2)
-	if err2 != nil {
-		return fmt.Errorf("%s\n%s", strings.TrimSpace(string(out)), strings.TrimSpace(string(out2)))
-	}
-	return nil
-}
 
 // posixQuote wraps a string in POSIX single quotes with proper escaping.
 // Any embedded single quotes are replaced with '\'' (end single quote,

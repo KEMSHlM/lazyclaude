@@ -93,18 +93,20 @@ func BuildScript(cfg ScriptConfig) (string, error) {
 		hooksPath = p
 	}
 
-	// 5. System prompt and user prompt via base64 (avoids all quoting issues)
+	// 5. System prompt and user prompt via base64 (avoids all quoting issues).
+	// Variables are exported so the login shell (exec "$SHELL" -lic '...')
+	// can expand them inside the single-quoted -lic argument.
 	sysPromptVar := ""
 	if cfg.SystemPrompt != "" {
 		encoded := base64.StdEncoding.EncodeToString([]byte(cfg.SystemPrompt))
-		b.WriteString(fmt.Sprintf("_LC_SYSPROMPT=$(echo %s | base64 -d)\n", encoded))
+		b.WriteString(fmt.Sprintf("export _LC_SYSPROMPT=$(echo %s | base64 -d)\n", encoded))
 		sysPromptVar = "_LC_SYSPROMPT"
 	}
 
 	userPromptVar := ""
 	if strings.TrimSpace(cfg.UserPrompt) != "" {
 		encoded := base64.StdEncoding.EncodeToString([]byte(cfg.UserPrompt))
-		b.WriteString(fmt.Sprintf("_LC_USERPROMPT=$(echo %s | base64 -d)\n", encoded))
+		b.WriteString(fmt.Sprintf("export _LC_USERPROMPT=$(echo %s | base64 -d)\n", encoded))
 		userPromptVar = "_LC_USERPROMPT"
 	}
 

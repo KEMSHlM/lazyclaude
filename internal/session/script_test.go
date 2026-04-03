@@ -135,8 +135,8 @@ func TestBuildScript_SystemPrompt(t *testing.T) {
 	assert.Contains(t, script, "--append-system-prompt")
 	// Prompt should be base64-encoded to avoid all quoting issues
 	assert.Contains(t, script, "base64 -d")
-	// The decoded prompt must contain the original text
-	// (verified by checking the base64 payload decodes correctly)
+	// Variable must be exported so the login shell can expand it
+	assert.Contains(t, script, "export _LC_SYSPROMPT=")
 }
 
 func TestBuildScript_SystemPrompt_WithQuotes(t *testing.T) {

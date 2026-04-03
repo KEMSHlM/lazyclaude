@@ -137,17 +137,14 @@ func ListWorktreesWithRunner(ctx context.Context, runner GitRunner, projectRoot 
 	}
 	items := parseWorktreePorcelain(string(out))
 
-	// For local runners, filter out worktrees whose directory no longer exists.
-	if _, ok := runner.(*LocalRunner); ok {
-		result := items[:0]
-		for _, item := range items {
-			if _, err := os.Stat(item.Path); err == nil {
-				result = append(result, item)
-			}
+	// Filter out worktrees whose directory no longer exists.
+	// Uses runner.Exists which works for both local (os.Stat) and SSH (test -d).
+	result := items[:0]
+	for _, item := range items {
+		exists, existsErr := runner.Exists(ctx, item.Path)
+		if existsErr == nil && exists {
+			result = append(result, item)
 		}
-		return result, nil
 	}
-
-	// Remote: skip os.Stat check (paths are on remote).
-	return items, nil
+	return result, nil
 }
