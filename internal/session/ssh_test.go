@@ -191,6 +191,30 @@ func TestWriteRemoteScript_NoHooksWithoutOpts(t *testing.T) {
 	assert.NotContains(t, script, "--settings")
 }
 
+func TestWriteRemoteScript_MCPEnvAndShellFunc(t *testing.T) {
+	t.Parallel()
+	sess := Session{
+		ID:   "testmcp0-abcd-5678",
+		Host: "user@remote",
+		Path: "/home/user/project",
+	}
+	path, err := writeRemoteScript(sess, 54321, "my-mcp-token", nil)
+	require.NoError(t, err)
+	defer os.Remove(path)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	script := string(content)
+
+	// MCP environment variables must be exported
+	assert.Contains(t, script, "export _LC_MCP_PORT=54321")
+	assert.Contains(t, script, "export _LC_MCP_TOKEN='my-mcp-token'")
+
+	// lazyclaude shell function must be defined
+	assert.Contains(t, script, "lazyclaude()")
+	assert.Contains(t, script, "_lc_json_esc()")
+}
+
 // --- buildSSHCommand tests ---
 
 func TestBuildSSHCommand_Basic(t *testing.T) {
