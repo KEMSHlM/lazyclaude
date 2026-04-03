@@ -478,6 +478,8 @@ func (s *Store) findProjectIdxLocked(path, host string) int {
 
 // projectHost returns the SSH host of a project by inspecting its sessions.
 // Returns "" for local projects.
+// Invariant: all sessions in a project share the same host. Mixed-host
+// projects are not supported.
 func projectHost(p *Project) string {
 	if p.PM != nil && p.PM.Host != "" {
 		return p.PM.Host
