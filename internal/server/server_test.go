@@ -796,6 +796,40 @@ func TestServer_SessionStart_CachesPID(t *testing.T) {
 	assert.Equal(t, "@51", window, "PID should be cached after session-start")
 }
 
+// TestServer_EnrichActivity_SSHWindowNameFallback verifies that enrichWithActivity
+// matches SSH sessions by window NAME when the activityMap is keyed by window name
+// (e.g. "lc-2c86ae79") instead of window ID (e.g. "@43").
+func TestServer_EnrichActivity_SSHWindowNameFallback(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+
+	// Simulate SSH hook: activityMap keyed by window NAME "lc-abcdef01"
+	// (from pendingWindowFile, which stores sess.WindowName())
+	pendingPath := filepath.Join(srv.RuntimeDir(), "lazyclaude-pending-window")
+	require.NoError(t, os.MkdirAll(srv.RuntimeDir(), 0o700))
+	require.NoError(t, os.WriteFile(pendingPath, []byte("lc-abcdef01\n"), 0o600))
+
+	body, _ := json.Marshal(map[string]any{"pid": 5001, "session_id": "sess-ssh"})
+	resp := postEndpoint(t, port, "/session-start", body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// SessionInfo.Window is the tmux window ID (different from the name)
+	sessions := []server.SessionInfo{
+		{ID: "abcdef01-2345-6789-abcd-ef0123456789", Name: "remote-worker", Role: "worker", Path: "/work", Window: "@55"},
+	}
+	srv.SetSessionLister(&fakeSessionLister{sessions: sessions})
+
+	sessResp := msgSessions(t, port, "test-token")
+	defer sessResp.Body.Close()
+	require.Equal(t, http.StatusOK, sessResp.StatusCode)
+
+	var result []server.SessionInfo
+	require.NoError(t, json.NewDecoder(sessResp.Body).Decode(&result))
+	require.Len(t, result, 1)
+	assert.Equal(t, "running", result[0].Activity, "should resolve via window name fallback lc-abcdef01")
+}
+
 func TestServer_Activity_UnknownWindowReturnsUnknown(t *testing.T) {
 	t.Parallel()
 	srv, _, _ := startTestServer(t)
