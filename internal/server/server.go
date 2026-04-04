@@ -263,11 +263,26 @@ func (s *Server) enrichWithActivity(sessions []SessionInfo) {
 			sessions[i].Activity = model.ActivityUnknown.String()
 			continue
 		}
+		// Local sessions: activityMap is keyed by tmux window ID (e.g. "@43"),
+		// resolved from local PID walks in resolveNotifyWindow.
 		if e, ok := s.activityMap[sessions[i].Window]; ok {
 			sessions[i].Activity = e.State.String()
-		} else {
-			sessions[i].Activity = model.ActivityUnknown.String()
+			continue
 		}
+		// SSH sessions: activityMap is keyed by window NAME (e.g. "lc-2c86ae79"),
+		// resolved from the pending window file. Compute the window name from
+		// session ID and check as fallback. Mirrors session.WindowName() logic.
+		if id := sessions[i].ID; id != "" {
+			wName := "lc-" + id
+			if len(id) > 8 {
+				wName = "lc-" + id[:8]
+			}
+			if e, ok := s.activityMap[wName]; ok {
+				sessions[i].Activity = e.State.String()
+				continue
+			}
+		}
+		sessions[i].Activity = model.ActivityUnknown.String()
 	}
 }
 
