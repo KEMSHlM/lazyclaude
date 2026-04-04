@@ -483,6 +483,10 @@ func stopReasonToActivity(reason string) model.ActivityState {
 // refreshSessionsAsync fetches the session list in a background goroutine and
 // updates the cached items via gui.Update. Skipped if a refresh is already in
 // flight or no SessionProvider is wired.
+//
+// IMPORTANT: Must only be called from the gocui event loop goroutine (inside
+// gui.Update callbacks or layout). The sessionRefreshing flag has no mutex
+// protection and relies on single-threaded access from the event loop.
 func (a *App) refreshSessionsAsync() {
 	if a.sessions == nil || a.sessionRefreshing {
 		return

@@ -263,7 +263,10 @@ type guiCompositeAdapter struct {
 	connecting  map[string]*lazyConn // one entry per host
 
 	// onError reports errors to the GUI via showError. Wired in root.go.
-	onError func(msg string)
+	// lastErrorMsg deduplicates consecutive identical errors to avoid flooding
+	// the GUI when Sessions() fails persistently (e.g. daemon unreachable).
+	onError      func(msg string)
+	lastErrorMsg string
 }
 
 // Compile-time check.
@@ -309,11 +312,14 @@ func (a *guiCompositeAdapter) RefreshPendingFrom(notifications []*model.ToolNoti
 func (a *guiCompositeAdapter) Sessions() []gui.SessionItem {
 	sessions, err := a.cp.Sessions()
 	if err != nil {
-		if a.onError != nil {
-			a.onError(fmt.Sprintf("Session list error: %v", err))
+		msg := fmt.Sprintf("Session list error: %v", err)
+		if a.onError != nil && msg != a.lastErrorMsg {
+			a.lastErrorMsg = msg
+			a.onError(msg)
 		}
 		return nil
 	}
+	a.lastErrorMsg = "" // clear on success so next error is reported
 	items := make([]gui.SessionItem, len(sessions))
 	activity := a.getWindowActivity()
 	for i, s := range sessions {

@@ -967,6 +967,11 @@ func (a *App) scrollViewHeight() int {
 // queries HistorySize asynchronously to update the scroll maxOffset. Used by
 // ScrollModeEnter and ScrollModeToTop where the history size is needed for
 // correct g/G navigation but must not block the GUI thread.
+//
+// Both HistorySize and CaptureScrollback run sequentially in the same goroutine.
+// Their gui.Update callbacks are delivered in FIFO order (gocui channel semantics).
+// The generation guard discards stale results if the user scrolls during the
+// network round-trips.
 func (a *App) captureScrollbackWithHistorySize() {
 	target := a.fullscreen.Target()
 	if target == "" {
@@ -977,20 +982,18 @@ func (a *App) captureScrollbackWithHistorySize() {
 	viewW := a.scrollViewWidth()
 
 	go func() {
-		if histSize, err := a.sessions.HistorySize(target); err == nil && histSize > 0 {
-			a.gui.Update(func(g *gocui.Gui) error {
-				if a.scroll.Generation() == gen {
-					a.scroll.SetMaxOffset(histSize)
-				}
-				return nil
-			})
-		}
-		result, err := a.sessions.CaptureScrollback(target, viewW, startLine, endLine)
+		histSize, histErr := a.sessions.HistorySize(target)
+		result, scrollErr := a.sessions.CaptureScrollback(target, viewW, startLine, endLine)
 		a.gui.Update(func(g *gocui.Gui) error {
-			if err != nil || a.scroll.Generation() != gen {
+			if a.scroll.Generation() != gen {
 				return nil
 			}
-			a.scroll.SetLines(splitLines(result.Content))
+			if histErr == nil && histSize > 0 {
+				a.scroll.SetMaxOffset(histSize)
+			}
+			if scrollErr == nil {
+				a.scroll.SetLines(splitLines(result.Content))
+			}
 			return nil
 		})
 	}()
