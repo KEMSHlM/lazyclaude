@@ -19,6 +19,7 @@ import (
 	"github.com/any-context/lazyclaude/internal/core/lifecycle"
 	"github.com/any-context/lazyclaude/internal/core/model"
 	"github.com/any-context/lazyclaude/internal/core/tmux"
+	"github.com/any-context/lazyclaude/internal/daemon"
 	"github.com/any-context/lazyclaude/internal/gui"
 	"github.com/any-context/lazyclaude/internal/mcp"
 	"github.com/any-context/lazyclaude/internal/notify"
@@ -121,7 +122,49 @@ func newRootCmd() *cobra.Command {
 				return fmt.Errorf("init TUI: %w", err)
 			}
 			adapter.windowActivityFn = app.WindowActivityMap
-			app.SetSessions(adapter)
+
+			// Check if we're inside an SSH pane and wire CompositeProvider if so.
+			if sshHost := gui.DetectSSHHost(); sshHost != "" {
+				localProvider := &localDaemonProvider{mgr: mgr, tmux: tmuxClient, paths: paths}
+				composite := daemon.NewCompositeProvider(localProvider, nil)
+
+				// Connect to the remote daemon.
+				ssh := &daemon.ExecSSHExecutor{}
+				lifecycleMgr := daemon.NewLifecycleManager(ssh)
+				clientFactory := func(addr, token string) daemon.ClientAPI {
+					return daemon.NewHTTPClient(addr, token)
+				}
+				remoteConn := daemon.NewRemoteConnection(sshHost, lifecycleMgr, clientFactory)
+
+				if connErr := remoteConn.Connect(context.Background()); connErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: remote connection to %s: %v\n", sshHost, connErr)
+				} else {
+					remoteProvider := daemon.NewRemoteProvider(sshHost, remoteConn)
+					lc.Register("remote-conn-"+sshHost, func() { remoteConn.Disconnect() })
+
+					// Start tmux socket forwarding for direct pane operations.
+					sockPath := daemon.SocketTunnelLocalPath(sshHost)
+					sockTunnel := daemon.NewSocketTunnel(sshHost, sockPath, "")
+					if sockErr := sockTunnel.Start(context.Background()); sockErr != nil {
+						fmt.Fprintf(os.Stderr, "warning: tmux socket tunnel to %s: %v\n", sshHost, sockErr)
+					} else {
+						remoteProvider.SetTmuxClient(sockTunnel.TmuxClient())
+						lc.Register("sock-tunnel-"+sshHost, func() { sockTunnel.Stop() })
+					}
+
+					composite.AddRemote(sshHost, remoteProvider)
+				}
+
+				compositeAdapter := &guiCompositeAdapter{
+					cp:       composite,
+					localMgr: mgr,
+					paths:    paths,
+				}
+				compositeAdapter.windowActivityFn = app.WindowActivityMap
+				app.SetSessions(compositeAdapter)
+			} else {
+				app.SetSessions(adapter)
+			}
 
 			// Plugin manager: wraps `claude plugins` CLI (project scope only)
 			var pluginOpts []plugin.Option

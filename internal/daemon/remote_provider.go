@@ -6,9 +6,16 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
+	"github.com/any-context/lazyclaude/internal/adapter/tmuxadapter"
+	"github.com/any-context/lazyclaude/internal/core/choice"
 	"github.com/any-context/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/core/tmux"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Compile-time check: RemoteProvider implements SessionProvider.
@@ -17,9 +24,15 @@ var _ SessionProvider = (*RemoteProvider)(nil)
 // RemoteProvider adapts a daemon ClientAPI to the SessionProvider interface.
 // It maintains a local cache of sessions and buffers tool notifications
 // received via SSE.
+//
+// For latency-sensitive operations (preview capture, scrollback, key sending),
+// a forwarded tmux.Client is used directly instead of going through the
+// daemon API. Session CRUD, worktree management, and messaging still use
+// the daemon API.
 type RemoteProvider struct {
-	host string
-	conn ConnectionManager
+	host       string
+	conn       ConnectionManager
+	tmuxClient tmux.Client // forwarded tmux socket client (nil = use daemon API)
 
 	mu            sync.Mutex
 	sessions      []SessionInfo
@@ -37,6 +50,23 @@ func NewRemoteProvider(host string, conn ConnectionManager) *RemoteProvider {
 		host: host,
 		conn: conn,
 	}
+}
+
+// SetTmuxClient sets the forwarded tmux.Client for direct pane operations.
+// When set, CapturePreview, CaptureScrollback, HistorySize, and SendChoice
+// use the forwarded socket directly instead of the daemon API.
+// Must be called before the GUI event loop starts.
+func (rp *RemoteProvider) SetTmuxClient(tc tmux.Client) {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	rp.tmuxClient = tc
+}
+
+// getTmuxClient returns the forwarded tmux.Client, or nil if not set.
+func (rp *RemoteProvider) getTmuxClient() tmux.Client {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	return rp.tmuxClient
 }
 
 // StartSSE begins consuming the SSE notification stream in a background
@@ -215,7 +245,29 @@ func (rp *RemoteProvider) PurgeOrphans() (int, error) {
 
 // --- PreviewProvider ---
 
+// resolveTmuxTarget returns the tmux target string for a session.
+// Looks up the session's TmuxWindow in the local cache; falls back to
+// constructing from session ID.
+func (rp *RemoteProvider) resolveTmuxTarget(id string) string {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	for _, s := range rp.sessions {
+		if s.ID == id && s.TmuxWindow != "" {
+			return s.TmuxWindow
+		}
+	}
+	// Fallback: construct window name from ID prefix.
+	name := "lc-" + id
+	if len(id) > 8 {
+		name = "lc-" + id[:8]
+	}
+	return tmuxSessionName + ":" + name
+}
+
 func (rp *RemoteProvider) CapturePreview(id string, width, height int) (*PreviewResponse, error) {
+	if tc := rp.getTmuxClient(); tc != nil {
+		return rp.capturePreviewDirect(tc, id, width, height)
+	}
 	client, err := rp.conn.Client()
 	if err != nil {
 		return nil, fmt.Errorf("capture preview: %w", err)
@@ -223,7 +275,51 @@ func (rp *RemoteProvider) CapturePreview(id string, width, height int) (*Preview
 	return client.CapturePreview(context.Background(), id, width, height)
 }
 
+// capturePreviewDirect captures pane content via the forwarded tmux socket.
+func (rp *RemoteProvider) capturePreviewDirect(tc tmux.Client, id string, width, height int) (*PreviewResponse, error) {
+	target := rp.resolveTmuxTarget(id)
+	ctx := context.Background()
+
+	if width > 0 && height > 0 {
+		_ = tc.ResizeWindow(ctx, target, width, height)
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	content, err := tc.CapturePaneANSI(ctx, target)
+	if err != nil || width <= 0 {
+		return &PreviewResponse{Content: content}, err
+	}
+
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if ansi.StringWidth(line) > width {
+			lines[i] = ansi.Truncate(line, width, "")
+		}
+	}
+	if height > 0 && len(lines) > height {
+		lines = lines[:height]
+	}
+
+	var cursorX, cursorY int
+	if pos, posErr := tc.ShowMessage(ctx, target, "#{cursor_x},#{cursor_y}"); posErr == nil {
+		parts := strings.SplitN(strings.TrimSpace(pos), ",", 2)
+		if len(parts) == 2 {
+			cursorX, _ = strconv.Atoi(parts[0])
+			cursorY, _ = strconv.Atoi(parts[1])
+		}
+	}
+
+	return &PreviewResponse{
+		Content: strings.Join(lines, "\n"),
+		CursorX: cursorX,
+		CursorY: cursorY,
+	}, nil
+}
+
 func (rp *RemoteProvider) CaptureScrollback(id string, width, startLine, endLine int) (*ScrollbackResponse, error) {
+	if tc := rp.getTmuxClient(); tc != nil {
+		return rp.captureScrollbackDirect(tc, id, startLine, endLine)
+	}
 	client, err := rp.conn.Client()
 	if err != nil {
 		return nil, fmt.Errorf("capture scrollback: %w", err)
@@ -231,7 +327,16 @@ func (rp *RemoteProvider) CaptureScrollback(id string, width, startLine, endLine
 	return client.CaptureScrollback(context.Background(), id, width, startLine, endLine)
 }
 
+func (rp *RemoteProvider) captureScrollbackDirect(tc tmux.Client, id string, startLine, endLine int) (*ScrollbackResponse, error) {
+	target := rp.resolveTmuxTarget(id)
+	content, err := tc.CapturePaneANSIRange(context.Background(), target, startLine, endLine)
+	return &ScrollbackResponse{Content: content}, err
+}
+
 func (rp *RemoteProvider) HistorySize(id string) (int, error) {
+	if tc := rp.getTmuxClient(); tc != nil {
+		return rp.historySizeDirect(tc, id)
+	}
 	client, err := rp.conn.Client()
 	if err != nil {
 		return 0, fmt.Errorf("history size: %w", err)
@@ -243,34 +348,38 @@ func (rp *RemoteProvider) HistorySize(id string) (int, error) {
 	return resp.Lines, nil
 }
 
+func (rp *RemoteProvider) historySizeDirect(tc tmux.Client, id string) (int, error) {
+	target := rp.resolveTmuxTarget(id)
+	out, err := tc.ShowMessage(context.Background(), target, "#{history_size}")
+	if err != nil {
+		return 0, err
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(out))
+	return n, nil
+}
+
 // --- SessionActioner ---
 
-// SendChoice sends a permission choice to the daemon. The choice is routed
-// by window name; the session ID is carried in the request body for the
-// daemon to resolve.
-func (rp *RemoteProvider) SendChoice(window string, choice int) error {
+// SendChoice sends a permission choice to the remote session's tmux pane.
+// When tmuxClient is set, sends directly via the forwarded socket.
+// Otherwise falls back to the daemon API.
+func (rp *RemoteProvider) SendChoice(window string, choiceVal int) error {
+	if tc := rp.getTmuxClient(); tc != nil {
+		return tmuxadapter.SendToPane(context.Background(), tc, window, choice.Choice(choiceVal))
+	}
 	client, err := rp.conn.Client()
 	if err != nil {
 		return fmt.Errorf("send choice: %w", err)
 	}
-	// Session ID is empty; the daemon routes by window name.
-	return client.SendChoice(context.Background(), "", window, choice)
+	return client.SendChoice(context.Background(), "", window, choiceVal)
 }
 
 // AttachSession attaches to a remote session via SSH -t tmux attach.
-// This bypasses the daemon API and directly runs an interactive SSH session.
+// Attach always uses SSH because the user's terminal must be connected
+// to the remote tmux process directly.
 func (rp *RemoteProvider) AttachSession(id string) error {
-	client, err := rp.conn.Client()
-	if err != nil {
-		return fmt.Errorf("attach session: %w", err)
-	}
-	resp, err := client.AttachSession(context.Background(), id)
-	if err != nil {
-		return fmt.Errorf("attach session: %w", err)
-	}
-
-	// SSH -t to the remote host and tmux attach to the target window.
-	return rp.runSSHInteractive(buildTmuxAttachCommand(resp.TmuxTarget))
+	target := rp.resolveTmuxTarget(id)
+	return rp.runSSHInteractive(buildTmuxAttachCommand(target))
 }
 
 // LaunchLazygit launches lazygit on the remote host via SSH -t.
