@@ -71,6 +71,11 @@ type ClientAPI interface {
 	// MsgSessions lists sessions available for messaging.
 	MsgSessions(ctx context.Context) (*MsgSessionsResponse, error)
 
+	// --- System Info ---
+
+	// CWD returns the daemon process's working directory.
+	CWD(ctx context.Context) (string, error)
+
 	// --- Health / Lifecycle ---
 
 	// Health returns the daemon's health status.

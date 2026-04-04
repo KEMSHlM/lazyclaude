@@ -22,6 +22,7 @@ import (
 	"github.com/any-context/lazyclaude/internal/daemon"
 	"github.com/any-context/lazyclaude/internal/gui"
 	"github.com/any-context/lazyclaude/internal/mcp"
+	"github.com/jesseduffield/gocui"
 	"github.com/any-context/lazyclaude/internal/notify"
 	"github.com/any-context/lazyclaude/internal/plugin"
 	"github.com/any-context/lazyclaude/internal/server"
@@ -175,10 +176,10 @@ func newRootCmd() *cobra.Command {
 				return nil
 			}
 
-			// Auto-detect SSH host and remote CWD from the originating pane.
+			// Auto-detect SSH host from the originating pane.
 			// Connection is deferred until the user performs a remote operation.
+			// Remote CWD is obtained via daemon API after connection is established.
 			pendingSSHHost := gui.DetectSSHHost()
-			pendingRemotePath := gui.DetectRemotePath()
 
 			// Snapshot local project root so the adapter can distinguish
 			// local-fallback paths from genuine remote paths.
@@ -189,16 +190,18 @@ func newRootCmd() *cobra.Command {
 			localProjectRoot := session.InferProjectRoot(localCWD)
 
 			compositeAdapter := &guiCompositeAdapter{
-				cp:                composite,
-				localMgr:          mgr,
-				paths:             paths,
-				pendingHost:       pendingSSHHost,
-				pendingRemotePath: pendingRemotePath,
-				localProjectRoot:  localProjectRoot,
-				connectFn:         connectRemoteHost,
+				cp:               composite,
+				localMgr:         mgr,
+				paths:            paths,
+				pendingHost:      pendingSSHHost,
+				localProjectRoot: localProjectRoot,
+				connectFn:        connectRemoteHost,
 			}
 			compositeAdapter.windowActivityFn = app.WindowActivityMap
 			compositeAdapter.onError = app.ScheduleError
+			compositeAdapter.guiUpdateFn = func() {
+				app.Gui().Update(func(_ *gocui.Gui) error { return nil })
+			}
 			app.SetSessions(compositeAdapter)
 
 			// Wire connection status for the options bar.

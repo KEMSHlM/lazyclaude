@@ -52,6 +52,11 @@ func NewRemoteProvider(host string, conn ConnectionManager) *RemoteProvider {
 	}
 }
 
+// Conn returns the underlying ConnectionManager for direct API access.
+func (rp *RemoteProvider) Conn() ConnectionManager {
+	return rp.conn
+}
+
 // SetTmuxClient sets the forwarded tmux.Client for direct pane operations.
 // When set, CapturePreview, CaptureScrollback, HistorySize, and SendChoice
 // use the forwarded socket directly instead of the daemon API.
