@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"strings"
 	"sync"
+
+	"github.com/any-context/lazyclaude/internal/core/tmux"
 )
 
 // Tunnel manages an SSH local port forwarding process.
@@ -173,4 +177,188 @@ func (t *Tunnel) SSHArgs() []string {
 	}
 	args = append(args, sshHost)
 	return args
+}
+
+// SocketTunnel forwards a remote Unix socket to a local Unix socket via SSH.
+// This allows direct tmux operations on remote sessions through the forwarded
+// socket, avoiding the daemon API for latency-sensitive operations like preview
+// capture and key sending.
+//
+// It runs: ssh -L localSocket:remoteSocket -N -a [...] host
+type SocketTunnel struct {
+	host       string
+	localSock  string // local Unix socket path
+	remoteSock string // remote Unix socket path (detected or provided)
+
+	mu   sync.Mutex
+	cmd  *exec.Cmd
+	done chan error
+}
+
+// NewSocketTunnel creates a SocketTunnel. The remote socket path is detected
+// lazily via DetectRemoteSocket if remoteSock is empty.
+func NewSocketTunnel(host, localSock, remoteSock string) *SocketTunnel {
+	return &SocketTunnel{
+		host:       host,
+		localSock:  localSock,
+		remoteSock: remoteSock,
+	}
+}
+
+// DetectRemoteSocket queries the remote host for the lazyclaude tmux server's
+// socket path using: ssh host tmux -L lazyclaude display -p '#{socket_path}'
+func DetectRemoteSocket(ctx context.Context, host string) (string, error) {
+	sshHost, port := splitHostPort(host)
+	args := []string{"-o", "BatchMode=yes"}
+	if port != "" {
+		args = append(args, "-p", port)
+	}
+	args = append(args, sshHost, "tmux", "-L", "lazyclaude", "display", "-p", "#{socket_path}")
+
+	out, err := exec.CommandContext(ctx, "ssh", args...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("detect remote tmux socket: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	sock := strings.TrimSpace(string(out))
+	if sock == "" {
+		return "", fmt.Errorf("remote tmux socket path is empty")
+	}
+	return sock, nil
+}
+
+// Start launches the SSH socket forwarding process.
+// If remoteSock was not provided at construction, it is detected first.
+func (st *SocketTunnel) Start(ctx context.Context) error {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	if st.cmd != nil {
+		return fmt.Errorf("socket tunnel already started")
+	}
+
+	if st.remoteSock == "" {
+		sock, err := DetectRemoteSocket(ctx, st.host)
+		if err != nil {
+			return err
+		}
+		st.remoteSock = sock
+	}
+
+	// Remove stale local socket file if it exists.
+	os.Remove(st.localSock)
+
+	sshHost, port := splitHostPort(st.host)
+	forwardSpec := fmt.Sprintf("%s:%s", st.localSock, st.remoteSock)
+
+	args := []string{
+		"-L", forwardSpec,
+		"-N",
+		"-a",
+		"-o", "ServerAliveInterval=15",
+		"-o", "ServerAliveCountMax=3",
+		"-o", "ExitOnForwardFailure=yes",
+		"-o", "BatchMode=yes",
+		"-o", "StreamLocalBindUnlink=yes",
+	}
+	if port != "" {
+		args = append(args, "-p", port)
+	}
+	args = append(args, sshHost)
+
+	st.cmd = exec.CommandContext(ctx, "ssh", args...)
+	st.done = make(chan error, 1)
+
+	if err := st.cmd.Start(); err != nil {
+		st.cmd = nil
+		st.done = nil
+		return fmt.Errorf("start socket tunnel: %w", err)
+	}
+
+	go func() {
+		st.done <- st.cmd.Wait()
+		close(st.done)
+	}()
+
+	return nil
+}
+
+// Stop terminates the SSH socket tunnel process and cleans up the local socket.
+func (st *SocketTunnel) Stop() error {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	if st.cmd == nil || st.cmd.Process == nil {
+		return nil
+	}
+
+	err := st.cmd.Process.Kill()
+	os.Remove(st.localSock)
+	if err != nil {
+		return fmt.Errorf("kill socket tunnel: %w", err)
+	}
+	return nil
+}
+
+// LocalSocket returns the local Unix socket path.
+func (st *SocketTunnel) LocalSocket() string {
+	return st.localSock
+}
+
+// IsAlive returns true if the tunnel process is still running.
+func (st *SocketTunnel) IsAlive() bool {
+	st.mu.Lock()
+	done := st.done
+	st.mu.Unlock()
+
+	if done == nil {
+		return false
+	}
+	select {
+	case <-done:
+		return false
+	default:
+		return true
+	}
+}
+
+// Wait returns a channel that receives the tunnel process exit error.
+func (st *SocketTunnel) Wait() <-chan error {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.done
+}
+
+// TmuxClient returns a tmux.Client that connects through the forwarded socket.
+// The returned client uses -S (absolute path) mode since localSock is absolute.
+func (st *SocketTunnel) TmuxClient() tmux.Client {
+	return tmux.NewExecClientWithSocket(st.localSock)
+}
+
+// SSHArgs returns the SSH command-line arguments for testing.
+func (st *SocketTunnel) SSHArgs() []string {
+	sshHost, port := splitHostPort(st.host)
+	forwardSpec := fmt.Sprintf("%s:%s", st.localSock, st.remoteSock)
+
+	args := []string{
+		"-L", forwardSpec,
+		"-N",
+		"-a",
+		"-o", "ServerAliveInterval=15",
+		"-o", "ServerAliveCountMax=3",
+		"-o", "ExitOnForwardFailure=yes",
+		"-o", "BatchMode=yes",
+		"-o", "StreamLocalBindUnlink=yes",
+	}
+	if port != "" {
+		args = append(args, "-p", port)
+	}
+	args = append(args, sshHost)
+	return args
+}
+
+// SocketTunnelLocalPath returns the conventional local socket path for a host.
+func SocketTunnelLocalPath(host string) string {
+	// Sanitize host for use in file path.
+	safe := strings.NewReplacer("@", "-", ":", "-", "/", "-").Replace(host)
+	return fmt.Sprintf("/tmp/lazyclaude-tmux-%s.sock", safe)
 }
