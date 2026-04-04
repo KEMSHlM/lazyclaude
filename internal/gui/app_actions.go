@@ -258,7 +258,7 @@ func (a *App) CreateSessionAtCWD() { a.createSession(".") }
 // localPath is the fallback directory for non-SSH sessions.
 // Runs asynchronously to avoid blocking the GUI thread during remote operations.
 func (a *App) createSession(localPath string) {
-	if a.sessions == nil {
+	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
 	go func() {
@@ -275,7 +275,7 @@ func (a *App) createSession(localPath string) {
 }
 
 func (a *App) DeleteSession() {
-	if a.sessions == nil {
+	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
 	sess := a.currentSession()
@@ -288,13 +288,13 @@ func (a *App) DeleteSession() {
 		a.gui.Update(func(g *gocui.Gui) error {
 			if err != nil {
 				a.showError(g, fmt.Sprintf("Error: %v", err))
-				return nil
+			} else {
+				nodes := a.treeNodes()
+				if a.cursor > 0 && a.cursor >= len(nodes) {
+					a.cursor--
+				}
+				a.setStatus(g, "Session deleted")
 			}
-			nodes := a.treeNodes()
-			if a.cursor > 0 && a.cursor >= len(nodes) {
-				a.cursor--
-			}
-			a.setStatus(g, "Session deleted")
 			return nil
 		})
 	}()
@@ -455,7 +455,7 @@ func (a *App) ConnectRemote() {
 }
 
 func (a *App) PurgeOrphans() {
-	if a.sessions == nil {
+	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
 	go func() {
