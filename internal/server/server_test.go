@@ -835,7 +835,7 @@ func TestServer_EnrichActivity_SSHWindowNameFallback(t *testing.T) {
 // This is the primary mechanism for SSH sessions with multiple concurrent sessions.
 func TestServer_WindowField_BypassesPIDResolution(t *testing.T) {
 	t.Parallel()
-	_, port, _ := startTestServer(t)
+	srv, port, _ := startTestServer(t)
 
 	// session-start with explicit window field — no pending file, no PID cache needed
 	body, _ := json.Marshal(map[string]any{
@@ -845,6 +845,9 @@ func TestServer_WindowField_BypassesPIDResolution(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
+	state, _ := srv.WindowActivity("lc-aabbccdd")
+	assert.Equal(t, "running", state.String(), "session-start should set running via window field")
+
 	// stop with explicit window field
 	body, _ = json.Marshal(map[string]any{
 		"pid": 99998, "window": "lc-aabbccdd", "stop_reason": "end_turn", "session_id": "sess-w1",
@@ -852,6 +855,9 @@ func TestServer_WindowField_BypassesPIDResolution(t *testing.T) {
 	resp = postEndpoint(t, port, "/stop", body)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	state, _ = srv.WindowActivity("lc-aabbccdd")
+	assert.Equal(t, "idle", state.String(), "stop end_turn should set idle via window field")
 
 	// notify (tool_info) with explicit window field
 	body, _ = json.Marshal(map[string]any{
@@ -861,6 +867,10 @@ func TestServer_WindowField_BypassesPIDResolution(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
+	state, toolName := srv.WindowActivity("lc-eeff0011")
+	assert.Equal(t, "running", state.String(), "tool_info should set running via window field")
+	assert.Equal(t, "Read", toolName)
+
 	// prompt-submit with explicit window field
 	body, _ = json.Marshal(map[string]any{
 		"pid": 99996, "window": "lc-eeff0011", "session_id": "sess-w2",
@@ -868,6 +878,9 @@ func TestServer_WindowField_BypassesPIDResolution(t *testing.T) {
 	resp = postEndpoint(t, port, "/prompt-submit", body)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	state, _ = srv.WindowActivity("lc-eeff0011")
+	assert.Equal(t, "running", state.String(), "prompt-submit should set running via window field")
 }
 
 func TestServer_Activity_UnknownWindowReturnsUnknown(t *testing.T) {
