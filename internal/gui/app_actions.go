@@ -632,7 +632,10 @@ func (a *App) PluginUninstall() {
 	}
 	p := installed[a.pluginState.installedCursor]
 	if p.Scope != "project" {
-		a.pluginState.errMsg = "only project-scoped plugins can be uninstalled"
+		a.gui.Update(func(g *gocui.Gui) error {
+			a.showError(g, "Only project-scoped plugins can be uninstalled")
+			return nil
+		})
 		return
 	}
 	a.runPluginAsync(func(ctx context.Context) error {
@@ -680,13 +683,12 @@ func (a *App) PluginRefresh() {
 // runPluginAsync runs a plugin operation asynchronously with loading state management.
 func (a *App) runPluginAsync(fn func(ctx context.Context) error) {
 	a.pluginState.loading = true
-	a.pluginState.errMsg = ""
 	go func() {
 		err := fn(context.Background())
 		a.gui.Update(func(g *gocui.Gui) error {
 			a.pluginState.loading = false
 			if err != nil {
-				a.pluginState.errMsg = err.Error()
+				a.showError(g, fmt.Sprintf("Plugin error: %v", err))
 			}
 			return nil
 		})
@@ -749,13 +751,12 @@ func (a *App) MCPRefresh() {
 
 func (a *App) runMCPAsync(fn func(ctx context.Context) error) {
 	a.mcpState.loading = true
-	a.mcpState.errMsg = ""
 	go func() {
 		err := fn(context.Background())
 		a.gui.Update(func(g *gocui.Gui) error {
 			a.mcpState.loading = false
 			if err != nil {
-				a.mcpState.errMsg = err.Error()
+				a.showError(g, fmt.Sprintf("MCP error: %v", err))
 			}
 			return nil
 		})
