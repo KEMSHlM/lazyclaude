@@ -30,7 +30,9 @@ func NewLifecycleManager(ssh SSHExecutor) *LifecycleManager {
 // The daemon runs in the foreground, so we launch it with nohup in the
 // background and then read daemon.json which contains the port and token.
 func (lm *LifecycleManager) StartRemoteDaemon(ctx context.Context, host string) (*DaemonInfo, error) {
-	cmd := "nohup lazyclaude daemon --port 0 > /tmp/lazyclaude-daemon.log 2>&1 & " +
+	// Try lazyclaude in PATH first, then common install locations.
+	cmd := "LC_BIN=$(command -v lazyclaude || echo $HOME/.local/bin/lazyclaude); " +
+		"nohup \"$LC_BIN\" daemon --port 0 > /tmp/lazyclaude-daemon.log 2>&1 & " +
 		"for i in $(seq 1 20); do sleep 0.5 && [ -f /tmp/lazyclaude-$(whoami)/daemon.json ] && " +
 		"cat /tmp/lazyclaude-$(whoami)/daemon.json && exit 0; done; exit 1"
 	output, err := lm.ssh.Run(ctx, host, cmd)

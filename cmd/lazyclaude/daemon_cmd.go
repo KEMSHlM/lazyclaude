@@ -53,10 +53,7 @@ func newDaemonCmd() *cobra.Command {
 			broker := event.NewBroker[model.Event]()
 			defer broker.Close()
 
-			runtimeDir := paths.RuntimeDir
-			if runtimeDir == "" {
-				runtimeDir = daemon.DaemonInfoDir()
-			}
+			runtimeDir := daemon.DaemonInfoDir()
 
 			cfg := daemon.DaemonConfig{
 				Port:       port,

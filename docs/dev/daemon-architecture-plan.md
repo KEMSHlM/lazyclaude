@@ -6,21 +6,63 @@ Replace lazyclaude's SSH session management (script injection, base64 encoding, 
 
 ## Architecture
 
+### Hybrid: tmux Socket Forwarding + Daemon API
+
 ```
-+-- Local Machine -----------------+     +-- Remote Machine ----------------+
-|                                  |     |                                  |
-|  lazyclaude TUI                  |     |  lazyclaude daemon               |
-|       |                          |     |       |                          |
-|  tmux -L lazyclaude              | API |  tmux -L lazyclaude              |
-|  +------+------+                 |<--->|  +------+------+                 |
-|  |local |local |                 |     |  |remote|remote|                 |
-|  |sess  |sess  |                 |     |  |sess  |sess  |                 |
-|  +------+------+                 |     |  +------+------+                 |
-|                                  |     |                                  |
-+----------------------------------+     +----------------------------------+
++-- Local Machine --------------------+     +-- Remote Machine ----------------+
+|                                     |     |                                  |
+|  lazyclaude TUI                     |     |  lazyclaude daemon               |
+|   |                                 |     |   |-- session lifecycle          |
+|   |-- tmux ops (preview, keys, etc) |     |   |-- hooks setup               |
+|   |   via forwarded socket ---------+-----+-> tmux -L lazyclaude socket      |
+|   |                                 |     |   |-- worktree (git)             |
+|   |-- session CRUD, worktree, msg   |     |   |-- prompt resolution          |
+|   |   via daemon API ---------------+-----+-> daemon HTTP server             |
+|   |                                 |     |                                  |
+|  tmux -L lazyclaude (local)         |     |  tmux -L lazyclaude (remote)     |
+|  +------+------+                    |     |  +------+------+                 |
+|  |local |local |                    |     |  |remote|remote|                 |
+|  |sess  |sess  |                    |     |  |sess  |sess  |                 |
+|  +------+------+                    |     |  +------+------+                 |
++-------------------------------------+     +----------------------------------+
 ```
 
-Each machine has its own `tmux -L lazyclaude` server. The local TUI calls the remote daemon API. Session creation, hooks, git operations, prompt resolution all happen natively on the remote.
+### Two communication channels
+
+**1. tmux socket forwarding (low latency, native tmux ops)**:
+```
+ssh -L /tmp/lazyclaude-remote.sock:{remote_tmux_socket_path} remote-host
+```
+Local TUI uses `tmux -S /tmp/lazyclaude-remote.sock` for:
+- capture-pane (preview)
+- scrollback capture
+- history-size
+- send-keys
+- send-choice
+- list-windows
+- attach-session
+
+Existing `tmux.Client` works transparently with `-S` flag.
+
+**2. Daemon API (session lifecycle)**:
+```
+ssh -L {localPort}:127.0.0.1:{remotePort} remote-host
+```
+Daemon handles:
+- Session create/delete/rename
+- Worktree create/list/resume
+- PM/Worker spawn
+- Message routing
+- Hooks configuration
+- Activity notifications (SSE)
+- Custom prompt resolution
+
+### Why this is better
+
+- Preview/scrollback/send-keys bypass HTTP entirely -- native tmux performance
+- Daemon API surface area is ~50% smaller (no tmux proxy endpoints)
+- Existing `tmux.Client` code reused for remote -- no wrapper needed
+- Attach session is just `tmux -S forwarded.sock attach`
 
 ## Design Patterns
 
@@ -336,11 +378,34 @@ Must complete before all other phases. A single Worker defines the API contract 
 
 ### Phase 3: Local TUI Integration (after Phase 0, parallel with Phase 1 and 2)
 
-**3.1** `internal/session/remote_provider.go` — RemoteSessionProvider (daemon.Client wrapper)
-**3.2** Wire CompositeProvider in `root.go`
+**3.1** `internal/daemon/remote_provider.go` — RemoteSessionProvider (daemon.Client wrapper)
+**3.2** `internal/daemon/http_client.go` — ClientAPI HTTP implementation
 **3.3** Interactive attach/lazygit via SSH (bypasses API)
 
-### Phase 4: Delete Old SSH Code (after Phase 1-3 verified)
+### Phase 3.5: tmux Socket Forwarding + CompositeProvider Wiring (after Phase 1-3)
+
+**3.5.1** tmux socket forwarding in tunnel.go:
+- Detect remote tmux socket path: `ssh host tmux -L lazyclaude display -p '#{socket_path}'`
+- Forward Unix socket: `ssh -L /tmp/lazyclaude-{host}.sock:{remote_socket} host`
+- Create remote `tmux.Client` using `-S /tmp/lazyclaude-{host}.sock`
+- RemoteProvider uses this tmux.Client for preview/scrollback/send-keys (no daemon API needed)
+
+**3.5.2** Wire CompositeProvider in root.go:
+- Build CompositeProvider with local sessionAdapter
+- On SSH detection (DetectSSHHost), create RemoteConnection + RemoteProvider
+- Register remote provider with CompositeProvider
+- Replace TUI's SessionProvider with CompositeProvider
+- MessageRouter wiring for cross-provider message routing
+
+**3.5.3** RemoteProvider uses direct tmux.Client for:
+- CapturePreview → tmux -S forwarded.sock capture-pane
+- CaptureScrollback → tmux -S forwarded.sock capture-pane -p -S start -E end
+- HistorySize → tmux -S forwarded.sock display -p '#{history_size}'
+- SendKeys → tmux -S forwarded.sock send-keys
+- SendChoice → tmux -S forwarded.sock send-keys (via tmuxadapter)
+- AttachSession → tmux -S forwarded.sock attach-session
+
+### Phase 4: Delete Old SSH Code (after Phase 3.5 verified)
 
 **4.1** Delete: ssh.go, script.go, ssh_test.go, script_test.go
 **4.2** Simplify: manager.go (remove all `host` params and SSH branches)
@@ -349,26 +414,36 @@ Must complete before all other phases. A single Worker defines the API contract 
 **4.5** Simplify: hooks.go (remove windowJS from hook commands)
 **4.6** Simplify: app.go SessionProvider interface (remove host params)
 **4.7** Simplify: app_actions.go (remove currentSessionHost), keybindings.go (remove host capture)
-**4.8** Simplify: root.go (remove host forwarding in adapters)
+**4.8** Simplify: root.go (remove host forwarding in adapters, replace with CompositeProvider)
+**4.9** Remove daemon server tmux proxy endpoints (preview, scrollback, send-keys, etc. -- now handled by socket forwarding)
 
-### Phase 5: Hardening (after Phase 4)
+### Phase 5: Hardening + UX (after Phase 4)
 
 **5.1** Reconnection with exponential backoff + TUI status indicator
-**5.2** Daemon auto-update (version mismatch detection)
+
+**5.2** Remote connection UX:
+- Auto-detection: TUI起動時 + ペイン切替時に DetectSSHHost() でリモート自動検出 → "Connecting to {host}..." 表示
+- 手動接続: `c` キーでホスト入力ダイアログ → connect
+- deploy未実行の検出: daemon起動失敗時 "lazyclaude not found on {host}. Run: lazyclaude deploy {host}" をshowError表示
+- ステータスバー: 接続中リモートのホスト名 + 接続状態 (connected/reconnecting/offline) を常時表示
+- TUI起動後のリモート追加: 複数ホストの動的追加/削除
+
+**5.3** Daemon auto-update (version mismatch detection)
+**5.4** Socket forwarding health check and reconnection
 
 ## Parallel Worker Assignment
 
 ```
-Worker A: Phase 0 (Framework) ---- MUST COMPLETE FIRST
-Worker B: Phase 2.2 (Deploy) ----- independent, start immediately
-Worker C: Phase 1 (Daemon) ------- after Phase 0
-Worker D: Phase 2.1+2.3 (Tunnel) - after Phase 0
-Worker E: Phase 3 (TUI) ---------- after Phase 0
-Worker F: Phase 4 (Delete) ------- after C, D, E verified
-Worker G: Phase 5 (Hardening) ---- after F
+Worker A: Phase 0 (Framework) ------ DONE
+Worker B: Phase 2.2 (Deploy) ------- DONE
+Worker C: Phase 1 (Daemon) --------- DONE
+Worker D: Phase 2.1+2.3 (Tunnel) --- DONE
+Worker E: Phase 3 (TUI) ------------ DONE
+Worker F: Phase 3.5 (Socket + Wiring) + Phase 4 (Delete) --- IN PROGRESS
+Worker G: Phase 5 (Hardening) ------ after F
 ```
 
-Critical path: **Phase 0 -> Phase 1 + Phase 3 -> Phase 4 -> Phase 5**
+Critical path: **Phase 3.5 (Socket + Wiring) -> Phase 4 (Delete) -> Phase 5**
 
 ## Success Criteria
 
