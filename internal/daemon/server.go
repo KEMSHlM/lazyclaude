@@ -638,10 +638,10 @@ type CWDResponse struct {
 }
 
 func (s *DaemonServer) handleCWD(w http.ResponseWriter, _ *http.Request) {
-	cwd, err := os.Getwd()
+	cwd, err := detectUserShellCWD()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
+		// Fallback: daemon's own CWD
+		cwd, _ = os.Getwd()
 	}
 	writeJSON(w, http.StatusOK, CWDResponse{CWD: cwd})
 }
