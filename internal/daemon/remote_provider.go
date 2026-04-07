@@ -376,6 +376,7 @@ func (rp *RemoteProvider) ResumeWorktreeResp(worktreePath, prompt, projectRoot s
 	}
 	return &SessionCreateResponse{
 		ID:         resp.SessionID,
+		Name:       resp.Name,
 		TmuxWindow: resp.TmuxWindow,
 	}, nil
 }

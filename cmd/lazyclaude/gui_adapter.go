@@ -349,6 +349,12 @@ func (a *guiCompositeAdapter) createMirrorForExisting(host string, s daemon.Sess
 // This is the shared post-creation step for worktree, PM, and worker sessions
 // on remote hosts.
 func (a *guiCompositeAdapter) ensureMirrorForRemoteSession(host string, resp *daemon.SessionCreateResponse) error {
+	// Skip if already in local store (guards against double-click / retry).
+	if a.localMgr.Store().FindByID(resp.ID) != nil {
+		debugLog("ensureMirrorForRemoteSession: session %q already in store, skipping", resp.ID)
+		return nil
+	}
+
 	mirrorName := session.MirrorWindowName(resp.ID)
 	if err := a.createMirrorWindow(host, resp.TmuxWindow, mirrorName); err != nil {
 		return fmt.Errorf("create mirror window: %w", err)
@@ -364,6 +370,9 @@ func (a *guiCompositeAdapter) ensureMirrorForRemoteSession(host string, resp *da
 	a.localMgr.Store().Add(sess, "")
 	if err := a.localMgr.Store().Save(); err != nil {
 		debugLog("ensureMirrorForRemoteSession: save store failed: %v", err)
+		if a.onError != nil {
+			a.onError(fmt.Sprintf("save store: %v", err))
+		}
 	}
 	debugLog("ensureMirrorForRemoteSession: mirror %q created for remote session %q", mirrorName, resp.ID)
 	a.triggerGUIUpdate()
@@ -570,15 +579,13 @@ func (a *guiCompositeAdapter) CreateWorktree(name, prompt, projectRoot string) e
 
 func (a *guiCompositeAdapter) createWorktreeWithHost(name, prompt, projectRoot, host string) error {
 	debugLog("createWorktreeWithHost: name=%q host=%q", name, host)
-	if err := a.ensureRemoteConnected(host); err != nil {
-		return err
-	}
-	if host != "" {
-		projectRoot = a.resolveRemotePath(projectRoot, host)
-	}
 	if host == "" {
 		return a.cp.CreateWorktree(name, prompt, projectRoot, host)
 	}
+	if err := a.ensureRemoteConnected(host); err != nil {
+		return err
+	}
+	projectRoot = a.resolveRemotePath(projectRoot, host)
 	rp := a.remoteProvider(host)
 	if rp == nil {
 		return fmt.Errorf("no remote provider for host %q", host)
@@ -596,15 +603,13 @@ func (a *guiCompositeAdapter) ResumeWorktree(worktreePath, prompt, projectRoot s
 
 func (a *guiCompositeAdapter) resumeWorktreeWithHost(worktreePath, prompt, projectRoot, host string) error {
 	debugLog("resumeWorktreeWithHost: wtPath=%q host=%q", worktreePath, host)
-	if err := a.ensureRemoteConnected(host); err != nil {
-		return err
-	}
-	if host != "" {
-		projectRoot = a.resolveRemotePath(projectRoot, host)
-	}
 	if host == "" {
 		return a.cp.ResumeWorktree(worktreePath, prompt, projectRoot, host)
 	}
+	if err := a.ensureRemoteConnected(host); err != nil {
+		return err
+	}
+	projectRoot = a.resolveRemotePath(projectRoot, host)
 	rp := a.remoteProvider(host)
 	if rp == nil {
 		return fmt.Errorf("no remote provider for host %q", host)
@@ -645,15 +650,13 @@ func (a *guiCompositeAdapter) CreatePMSession(projectRoot string) error {
 
 func (a *guiCompositeAdapter) createPMSessionWithHost(projectRoot, host string) error {
 	debugLog("createPMSessionWithHost: projectRoot=%q host=%q", projectRoot, host)
-	if err := a.ensureRemoteConnected(host); err != nil {
-		return err
-	}
-	if host != "" {
-		projectRoot = a.resolveRemotePath(projectRoot, host)
-	}
 	if host == "" {
 		return a.cp.CreatePMSession(projectRoot, host)
 	}
+	if err := a.ensureRemoteConnected(host); err != nil {
+		return err
+	}
+	projectRoot = a.resolveRemotePath(projectRoot, host)
 	rp := a.remoteProvider(host)
 	if rp == nil {
 		return fmt.Errorf("no remote provider for host %q", host)
@@ -671,15 +674,13 @@ func (a *guiCompositeAdapter) CreateWorkerSession(name, prompt, projectRoot stri
 
 func (a *guiCompositeAdapter) createWorkerSessionWithHost(name, prompt, projectRoot, host string) error {
 	debugLog("createWorkerSessionWithHost: name=%q host=%q", name, host)
-	if err := a.ensureRemoteConnected(host); err != nil {
-		return err
-	}
-	if host != "" {
-		projectRoot = a.resolveRemotePath(projectRoot, host)
-	}
 	if host == "" {
 		return a.cp.CreateWorkerSession(name, prompt, projectRoot, host)
 	}
+	if err := a.ensureRemoteConnected(host); err != nil {
+		return err
+	}
+	projectRoot = a.resolveRemotePath(projectRoot, host)
 	rp := a.remoteProvider(host)
 	if rp == nil {
 		return fmt.Errorf("no remote provider for host %q", host)

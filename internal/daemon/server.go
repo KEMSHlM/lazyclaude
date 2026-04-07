@@ -322,6 +322,7 @@ func (s *DaemonServer) handleWorktreeResume(w http.ResponseWriter, r *http.Reque
 
 	writeJSON(w, http.StatusOK, WorktreeResumeResponse{
 		SessionID:  sess.ID,
+		Name:       sess.Name,
 		TmuxWindow: sess.WindowName(),
 	})
 }

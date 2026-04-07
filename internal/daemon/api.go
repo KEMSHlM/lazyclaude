@@ -148,6 +148,7 @@ type WorktreeResumeRequest struct {
 // WorktreeResumeResponse is returned after a worktree session is resumed.
 type WorktreeResumeResponse struct {
 	SessionID  string `json:"session_id"`
+	Name       string `json:"name"`
 	TmuxWindow string `json:"tmux_window"`
 }
 
