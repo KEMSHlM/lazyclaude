@@ -260,7 +260,8 @@ type guiCompositeAdapter struct {
 	// Lazy remote connection: pendingHost is the default SSH host, initially set
 	// at construction from DetectSSHHost() and updated by SetPendingHost after
 	// successful connect-dialog connections. Protected by hostMu for thread safety.
-	hostMu           sync.Mutex
+	// RWMutex because reads (every operation) vastly outnumber writes (connect dialog).
+	hostMu           sync.RWMutex
 	pendingHost      string             // Default SSH host (updated after connect dialog)
 	localProjectRoot string             // Local project root at startup (immutable after construction)
 	connectFn        func(string) error // connectRemoteHost from root.go
@@ -301,8 +302,8 @@ func (a *guiCompositeAdapter) SetPendingHost(host string) {
 
 // readPendingHost returns the current default remote host (thread-safe).
 func (a *guiCompositeAdapter) readPendingHost() string {
-	a.hostMu.Lock()
-	defer a.hostMu.Unlock()
+	a.hostMu.RLock()
+	defer a.hostMu.RUnlock()
 	return a.pendingHost
 }
 
