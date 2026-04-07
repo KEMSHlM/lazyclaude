@@ -210,6 +210,23 @@ func newRootCmd() *cobra.Command {
 			}
 			compositeAdapter.windowActivityFn = app.WindowActivityMap
 			compositeAdapter.onError = app.ScheduleError
+			compositeAdapter.sockRetryFn = func(host string) {
+				sockPath := daemon.SocketTunnelLocalPath(host)
+				sockTunnel := daemon.NewSocketTunnel(host, sockPath, "")
+				debugLog("sockRetryFn: retrying socket tunnel for host=%q sockPath=%q", host, sockPath)
+				if err := sockTunnel.Start(context.Background()); err != nil {
+					debugLog("sockRetryFn: socket tunnel retry failed: %v", err)
+					return
+				}
+				debugLog("sockRetryFn: socket tunnel retry succeeded")
+				if sp := composite.RemoteProvider(host); sp != nil {
+					if rp, ok := sp.(*daemon.RemoteProvider); ok {
+						rp.SetTmuxClient(sockTunnel.TmuxClient())
+						lc.Register("sock-tunnel-retry-"+host, func() { sockTunnel.Stop() })
+						sockChecker.set(host, sockTunnel, rp)
+					}
+				}
+			}
 			compositeAdapter.guiUpdateFn = func() {
 				app.Gui().Update(func(_ *gocui.Gui) error { return nil })
 			}
@@ -242,6 +259,9 @@ func newRootCmd() *cobra.Command {
 					return err
 				}
 				compositeAdapter.SetPendingHost(host)
+				// Sync the lazyConn cache so ensureRemoteConnected
+				// skips the redundant connectFn call for this host.
+				compositeAdapter.markConnected(host)
 				return nil
 			})
 

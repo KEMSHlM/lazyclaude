@@ -268,6 +268,11 @@ type guiCompositeAdapter struct {
 	connectMu        sync.Mutex
 	connecting       map[string]*lazyConn // one entry per host
 
+	// sockRetryFn retries the socket tunnel after a remote session is created.
+	// Set in root.go. Called from completeRemoteCreate when cp.Create succeeds,
+	// because the initial tunnel may have failed (remote tmux server not yet running).
+	sockRetryFn func(host string)
+
 	// onError reports errors to the GUI via showError. Wired in root.go.
 	// lastErrorMsg deduplicates consecutive identical errors to avoid flooding
 	// the GUI when Sessions() fails persistently (e.g. daemon unreachable).
@@ -313,6 +318,21 @@ func (a *guiCompositeAdapter) readPendingHost() string {
 type lazyConn struct {
 	once sync.Once
 	err  error
+}
+
+// markConnected records that a host has been successfully connected via an
+// external path (e.g. the connect dialog). This populates the lazyConn cache
+// so that ensureRemoteConnected skips the redundant connectFn call.
+func (a *guiCompositeAdapter) markConnected(host string) {
+	a.connectMu.Lock()
+	defer a.connectMu.Unlock()
+	if a.connecting == nil {
+		a.connecting = make(map[string]*lazyConn)
+	}
+	lc := &lazyConn{}
+	lc.once.Do(func() {}) // mark as completed with nil error
+	a.connecting[host] = lc
+	debugLog("markConnected: host=%q cached in lazyConn", host)
 }
 
 // ensureRemoteConnected lazily establishes a remote connection on first use.
@@ -449,6 +469,13 @@ func (a *guiCompositeAdapter) completeRemoteCreate(placeholderID, localPath, hos
 		return
 	}
 	debugLog("completeRemoteCreate: cp.Create succeeded")
+
+	// The first session creation starts the remote tmux server. Retry
+	// the socket tunnel now that the server should be running.
+	if a.sockRetryFn != nil {
+		debugLog("completeRemoteCreate: retrying socket tunnel for host=%q", host)
+		a.sockRetryFn(host)
+	}
 
 	// Update the placeholder's path to the resolved remote path.
 	a.localMgr.Store().Rename(placeholderID, a.localMgr.Store().GenerateName(remotePath))
