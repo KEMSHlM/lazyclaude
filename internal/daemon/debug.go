@@ -6,10 +6,14 @@ import (
 	"time"
 )
 
+var debugEnabled = os.Getenv("LAZYCLAUDE_DEBUG") != ""
+
 // debugLog appends a timestamped line to /tmp/lazyclaude-debug.log.
-// Used for diagnosing remote connection issues. This is temporary
-// debug instrumentation and should be removed after investigation.
+// Enabled by setting LAZYCLAUDE_DEBUG=1 environment variable.
 func debugLog(format string, args ...any) {
+	if !debugEnabled {
+		return
+	}
 	f, err := os.OpenFile("/tmp/lazyclaude-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return

@@ -147,7 +147,7 @@ func (rc *RemoteConnection) connectLocked(ctx context.Context) error {
 			return fmt.Errorf("connect to %s: %w", rc.host, err)
 		}
 	}
-	debugLog("connectLocked: daemon info: port=%d token=%q pid=%d discovered=%v", info.Port, info.Token, info.PID, discovered)
+	debugLog("connectLocked: daemon info: port=%d pid=%d discovered=%v", info.Port, info.PID, discovered)
 
 	if info.Token == "" {
 		rc.setState(ConnectionError)

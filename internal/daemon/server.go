@@ -324,26 +324,13 @@ func (s *DaemonServer) handlePreview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	content, err := s.tmux.CapturePaneANSI(ctx, target)
+	resp, err := CapturePreviewContent(ctx, s.tmux, target)
 	if err != nil {
 		http.Error(w, "capture failed", http.StatusInternalServerError)
 		return
 	}
 
-	var cursorX, cursorY int
-	if pos, posErr := s.tmux.ShowMessage(ctx, target, "#{cursor_x},#{cursor_y}"); posErr == nil {
-		parts := strings.SplitN(strings.TrimSpace(pos), ",", 2)
-		if len(parts) == 2 {
-			cursorX, _ = strconv.Atoi(parts[0])
-			cursorY, _ = strconv.Atoi(parts[1])
-		}
-	}
-
-	writeJSON(w, http.StatusOK, PreviewResponse{
-		Content: content,
-		CursorX: cursorX,
-		CursorY: cursorY,
-	})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *DaemonServer) handleScrollback(w http.ResponseWriter, r *http.Request) {

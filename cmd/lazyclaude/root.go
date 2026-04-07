@@ -8,12 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/any-context/lazyclaude/internal/adapter/tmuxadapter"
 	"github.com/any-context/lazyclaude/internal/core/config"
 	"github.com/any-context/lazyclaude/internal/core/event"
 	"github.com/any-context/lazyclaude/internal/core/lifecycle"
@@ -22,11 +20,9 @@ import (
 	"github.com/any-context/lazyclaude/internal/daemon"
 	"github.com/any-context/lazyclaude/internal/gui"
 	"github.com/any-context/lazyclaude/internal/mcp"
-	"github.com/any-context/lazyclaude/internal/notify"
 	"github.com/any-context/lazyclaude/internal/plugin"
 	"github.com/any-context/lazyclaude/internal/server"
 	"github.com/any-context/lazyclaude/internal/session"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/jesseduffield/gocui"
 	"github.com/spf13/cobra"
 )
@@ -122,7 +118,7 @@ func newRootCmd() *cobra.Command {
 			}
 
 			// Always use CompositeProvider so manual 'c' connect can add remotes.
-			localProvider := &localDaemonProvider{mgr: mgr, tmux: tmuxClient, paths: paths}
+			localProvider := &localDaemonProvider{mgr: mgr, tmux: tmuxClient}
 			composite := daemon.NewCompositeProvider(localProvider, nil)
 
 			ssh := &daemon.ExecSSHExecutor{}
@@ -134,10 +130,9 @@ func newRootCmd() *cobra.Command {
 			// remoteConns tracks active RemoteConnections for status display.
 			var remoteConnsMu sync.Mutex
 			remoteConns := make(map[string]*daemon.RemoteConnection)
-			sockChecker := &socketHealthChecker{}
 
-			// connectRemoteHost establishes a full remote connection pipeline:
-			// daemon connection + socket tunnel + provider registration.
+			// connectRemoteHost establishes a remote connection pipeline:
+			// daemon connection + provider registration.
 			connectRemoteHost := func(host string) error {
 				debugLog("connectRemoteHost: host=%q", host)
 				remoteConn := daemon.NewRemoteConnection(host, lifecycleMgr, clientFactory)
@@ -149,29 +144,6 @@ func newRootCmd() *cobra.Command {
 
 				remoteProvider := daemon.NewRemoteProvider(host, remoteConn)
 				lc.Register("remote-conn-"+host, func() { remoteConn.Disconnect() })
-
-				// Socket forwarding for direct tmux pane operations.
-				sockPath := daemon.SocketTunnelLocalPath(host)
-				sockTunnel := daemon.NewSocketTunnel(host, sockPath, "")
-				debugLog("connectRemoteHost: socket tunnel starting sockPath=%q", sockPath)
-				if sockErr := sockTunnel.Start(context.Background()); sockErr != nil {
-					debugLog("connectRemoteHost: socket tunnel failed: %v", sockErr)
-					fmt.Fprintf(os.Stderr, "warning: tmux socket tunnel to %s: %v\n", host, sockErr)
-				} else {
-					debugLog("connectRemoteHost: socket tunnel started")
-					remoteProvider.SetTmuxClient(sockTunnel.TmuxClient())
-					lc.Register("sock-tunnel-"+host, func() { sockTunnel.Stop() })
-					sockChecker.set(host, sockTunnel, remoteProvider)
-
-					// Re-establish socket tunnel on reconnection.
-					remoteConn.OnReconnect(func() {
-						newSock := daemon.NewSocketTunnel(host, sockPath, "")
-						if err := newSock.Start(context.Background()); err == nil {
-							remoteProvider.SetTmuxClient(newSock.TmuxClient())
-							sockChecker.set(host, newSock, remoteProvider)
-						}
-					})
-				}
 
 				composite.AddRemote(host, remoteProvider)
 
@@ -210,23 +182,6 @@ func newRootCmd() *cobra.Command {
 			}
 			compositeAdapter.windowActivityFn = app.WindowActivityMap
 			compositeAdapter.onError = app.ScheduleError
-			compositeAdapter.sockRetryFn = func(host string) {
-				sockPath := daemon.SocketTunnelLocalPath(host)
-				sockTunnel := daemon.NewSocketTunnel(host, sockPath, "")
-				debugLog("sockRetryFn: retrying socket tunnel for host=%q sockPath=%q", host, sockPath)
-				if err := sockTunnel.Start(context.Background()); err != nil {
-					debugLog("sockRetryFn: socket tunnel retry failed: %v", err)
-					return
-				}
-				debugLog("sockRetryFn: socket tunnel retry succeeded")
-				if sp := composite.RemoteProvider(host); sp != nil {
-					if rp, ok := sp.(*daemon.RemoteProvider); ok {
-						rp.SetTmuxClient(sockTunnel.TmuxClient())
-						lc.Register("sock-tunnel-retry-"+host, func() { sockTunnel.Stop() })
-						sockChecker.set(host, sockTunnel, rp)
-					}
-				}
-			}
 			compositeAdapter.guiUpdateFn = func() {
 				app.Gui().Update(func(_ *gocui.Gui) error { return nil })
 			}
@@ -298,7 +253,6 @@ func newRootCmd() *cobra.Command {
 			ctrlMgr.tryConnect()
 			app.SetOnTick(func() {
 				ctrlMgr.ensureConnected()
-				sockChecker.check()
 			})
 			lc.Register("control-client", ctrlMgr.close)
 
@@ -461,54 +415,6 @@ func (a *sessionCreatorAdapter) CreateLocalSession(ctx context.Context, name, pr
 	}, nil
 }
 
-// sessionAdapter bridges session.Manager to gui.SessionProvider.
-type sessionAdapter struct {
-	mgr          *session.Manager
-	tmux         tmux.Client
-	paths        config.Paths
-	lastResizeID string // session ID of last resize
-	lastResizeW  int
-	lastResizeH  int
-
-	// cachedPending is refreshed once per layout cycle via RefreshPending,
-	// then reused by Sessions() and Projects() to avoid redundant ReadAll
-	// calls (each of which does an os.ReadDir + file I/O).
-	cachedPending map[string]bool
-
-	// windowActivity provides window->activity mapping from the App layer.
-	// Set via SetWindowActivitySource after the App is wired.
-	windowActivityFn func() map[string]gui.WindowActivityEntry
-}
-
-// RefreshPendingFrom caches the given notifications for badge rendering.
-// Called from the ticker goroutine after ReadAll, before the files are
-// consumed, so that Sessions() and Projects() can display badges without
-// a redundant (and destructive) ReadAll call.
-func (a *sessionAdapter) RefreshPendingFrom(notifications []*model.ToolNotification) {
-	a.cachedPending = pendingWindowSet(notifications)
-}
-
-func (a *sessionAdapter) Sessions() []gui.SessionItem {
-	sessions := a.mgr.Sessions()
-	return buildSessionItems(sessions, a.cachedPending, a.getWindowActivity())
-}
-
-func (a *sessionAdapter) Projects() []gui.ProjectItem {
-	projects := a.mgr.Projects()
-	return buildProjectItems(projects, a.cachedPending, a.getWindowActivity())
-}
-
-func (a *sessionAdapter) getWindowActivity() map[string]gui.WindowActivityEntry {
-	if a.windowActivityFn != nil {
-		return a.windowActivityFn()
-	}
-	return nil
-}
-
-func (a *sessionAdapter) ToggleProjectExpanded(projectID string) {
-	a.mgr.ToggleProjectExpanded(projectID)
-}
-
 // pendingWindowSet builds a set of tmux window IDs that have pending notifications.
 func pendingWindowSet(notifications []*model.ToolNotification) map[string]bool {
 	set := make(map[string]bool, len(notifications))
@@ -597,262 +503,6 @@ func buildSessionItems(sessions []session.Session, pending map[string]bool, wind
 		items[i] = sessionToItem(s, pending, windowActivity)
 	}
 	return items
-}
-
-func (a *sessionAdapter) CapturePreview(id string, width, height int) (gui.PreviewResult, error) {
-	sess := a.mgr.Store().FindByID(id)
-	if sess == nil {
-		return gui.PreviewResult{}, nil
-	}
-	target := sess.TmuxWindow
-	if target == "" {
-		target = "lazyclaude:" + sess.WindowName()
-	}
-	ctx := context.Background()
-
-	// Resize pane only when target or dimensions changed
-	if width > 0 && height > 0 && (id != a.lastResizeID || width != a.lastResizeW || height != a.lastResizeH) {
-		if err := a.tmux.ResizeWindow(ctx, target, width, height); err != nil {
-			return gui.PreviewResult{}, err
-		}
-		a.lastResizeID = id
-		a.lastResizeW = width
-		a.lastResizeH = height
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	// Capture with ANSI colors
-	content, err := a.tmux.CapturePaneANSI(ctx, target)
-	if err != nil || width <= 0 {
-		return gui.PreviewResult{Content: content}, err
-	}
-
-	// Safety truncate
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		if ansi.StringWidth(line) > width {
-			lines[i] = ansi.Truncate(line, width, "")
-		}
-	}
-	if height > 0 && len(lines) > height {
-		lines = lines[:height]
-	}
-
-	// Fetch cursor position from tmux pane
-	var cursorX, cursorY int
-	if pos, err := a.tmux.ShowMessage(ctx, target, "#{cursor_x},#{cursor_y}"); err == nil {
-		parts := strings.SplitN(strings.TrimSpace(pos), ",", 2)
-		if len(parts) == 2 {
-			cursorX, _ = strconv.Atoi(parts[0])
-			cursorY, _ = strconv.Atoi(parts[1])
-		}
-	}
-
-	return gui.PreviewResult{
-		Content: strings.Join(lines, "\n"),
-		CursorX: cursorX,
-		CursorY: cursorY,
-	}, nil
-}
-
-func (a *sessionAdapter) CaptureScrollback(id string, _, startLine, endLine int) (gui.PreviewResult, error) {
-	sess := a.mgr.Store().FindByID(id)
-	if sess == nil {
-		return gui.PreviewResult{}, nil
-	}
-	target := sess.TmuxWindow
-	if target == "" {
-		target = "lazyclaude:" + sess.WindowName()
-	}
-	ctx := context.Background()
-
-	// Truncation is handled by renderScrollContent (ANSI-aware).
-	content, err := a.tmux.CapturePaneANSIRange(ctx, target, startLine, endLine)
-	return gui.PreviewResult{Content: content}, err
-}
-
-func (a *sessionAdapter) HistorySize(id string) (int, error) {
-	sess := a.mgr.Store().FindByID(id)
-	if sess == nil {
-		return 0, nil
-	}
-	target := sess.TmuxWindow
-	if target == "" {
-		target = "lazyclaude:" + sess.WindowName()
-	}
-	ctx := context.Background()
-	out, err := a.tmux.ShowMessage(ctx, target, "#{history_size}")
-	if err != nil {
-		return 0, err
-	}
-	n, _ := strconv.Atoi(strings.TrimSpace(out))
-	return n, nil
-}
-
-func (a *sessionAdapter) Create(path string) error {
-	if path == "." {
-		abs, err := filepath.Abs(".")
-		if err != nil {
-			return err
-		}
-		path = abs
-	}
-	_, err := a.mgr.Create(context.Background(), path)
-	return err
-}
-
-func (a *sessionAdapter) Delete(id string) error {
-	return a.mgr.Delete(context.Background(), id)
-}
-
-func (a *sessionAdapter) Rename(id, newName string) error {
-	return a.mgr.Rename(id, newName)
-}
-
-func (a *sessionAdapter) PurgeOrphans() (int, error) {
-	return a.mgr.PurgeOrphans()
-}
-
-func (a *sessionAdapter) PendingNotifications() []*model.ToolNotification {
-	notifications, err := notify.ReadAll(a.paths.RuntimeDir)
-	if err != nil || len(notifications) == 0 {
-		return nil
-	}
-	return notifications
-}
-
-func (a *sessionAdapter) SendChoice(window string, c gui.Choice) error {
-	return tmuxadapter.SendToPane(context.Background(), a.tmux, window, c)
-}
-
-func (a *sessionAdapter) CreateWorktree(name, prompt, projectRoot string) error {
-	_, err := a.mgr.CreateWorktree(context.Background(), name, prompt, projectRoot)
-	return err
-}
-
-func (a *sessionAdapter) ResumeWorktree(worktreePath, prompt, projectRoot string) error {
-	_, err := a.mgr.ResumeWorktree(context.Background(), worktreePath, prompt, projectRoot)
-	return err
-}
-
-func (a *sessionAdapter) CreatePMSession(projectRoot string) error {
-	_, err := a.mgr.CreatePMSession(context.Background(), projectRoot)
-	return err
-}
-
-func (a *sessionAdapter) CreateWorkerSession(name, prompt, projectRoot string) error {
-	_, err := a.mgr.CreateWorkerSession(context.Background(), name, prompt, projectRoot)
-	return err
-}
-
-func (a *sessionAdapter) ListWorktrees(projectRoot string) ([]gui.WorktreeInfo, error) {
-	items, err := session.ListWorktrees(context.Background(), projectRoot)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]gui.WorktreeInfo, len(items))
-	for i, item := range items {
-		result[i] = gui.WorktreeInfo{Name: item.Name, Path: item.Path, Branch: item.Branch}
-	}
-	return result, nil
-}
-
-func (a *sessionAdapter) LaunchLazygit(path string) error {
-	if _, err := exec.LookPath("lazygit"); err != nil {
-		return fmt.Errorf("lazygit is not installed")
-	}
-	cmd := exec.Command("lazygit")
-	cmd.Dir = path
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func (a *sessionAdapter) AttachSession(id string) error {
-	sess := a.mgr.Store().FindByID(id)
-	if sess == nil {
-		return fmt.Errorf("session not found: %s", id)
-	}
-	target := "lazyclaude:" + sess.WindowName()
-
-	// Ensure window-size=largest so attach is not constrained by control mode.
-	_ = exec.Command("tmux", "-L", "lazyclaude", "set-option", "-t", "lazyclaude", "window-size", "largest").Run()
-
-	// Directly attach to the lazyclaude tmux session.
-	cmd := exec.Command("tmux", "-L", "lazyclaude", "attach-session", "-t", target)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-// controlManager handles control mode connection lifecycle.
-// socketHealthEntry tracks a socket tunnel and its associated remote provider
-// for periodic health checking and reconnection.
-type socketHealthEntry struct {
-	tunnel   *daemon.SocketTunnel
-	provider *daemon.RemoteProvider
-}
-
-// socketHealthChecker periodically checks socket tunnel health and reconnects.
-// Designed to be called from the GUI ticker (every 100ms); internally throttles
-// to ~5s intervals using a counter. Uses host-keyed map to prevent stale entries
-// from accumulating across reconnections.
-type socketHealthChecker struct {
-	mu      sync.Mutex
-	entries map[string]socketHealthEntry // host -> entry
-	counter int                          // ticker call counter for throttling
-}
-
-// set registers or replaces the socket tunnel for a host.
-// Replaces any previous entry for the same host.
-func (s *socketHealthChecker) set(host string, tunnel *daemon.SocketTunnel, provider *daemon.RemoteProvider) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.entries == nil {
-		s.entries = make(map[string]socketHealthEntry)
-	}
-	s.entries[host] = socketHealthEntry{tunnel: tunnel, provider: provider}
-}
-
-// check is called from the ticker. Throttles to roughly every 5 seconds
-// (50 ticks at 100ms interval).
-func (s *socketHealthChecker) check() {
-	s.mu.Lock()
-	s.counter++
-	if s.counter < 50 {
-		s.mu.Unlock()
-		return
-	}
-	s.counter = 0
-
-	// Snapshot entries under lock.
-	type snapshot struct {
-		host  string
-		entry socketHealthEntry
-	}
-	snaps := make([]snapshot, 0, len(s.entries))
-	for host, e := range s.entries {
-		snaps = append(snaps, snapshot{host: host, entry: e})
-	}
-	s.mu.Unlock()
-
-	for _, snap := range snaps {
-		if snap.entry.tunnel != nil && !snap.entry.tunnel.IsAlive() {
-			sockPath := daemon.SocketTunnelLocalPath(snap.host)
-			newTunnel := daemon.NewSocketTunnel(snap.host, sockPath, "")
-			if err := newTunnel.Start(context.Background()); err == nil {
-				snap.entry.provider.SetTmuxClient(newTunnel.TmuxClient())
-				s.mu.Lock()
-				s.entries[snap.host] = socketHealthEntry{
-					tunnel:   newTunnel,
-					provider: snap.entry.provider,
-				}
-				s.mu.Unlock()
-			}
-		}
-	}
 }
 
 type controlManager struct {

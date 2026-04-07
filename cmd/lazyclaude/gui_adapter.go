@@ -3,16 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/any-context/lazyclaude/internal/adapter/tmuxadapter"
-	"github.com/any-context/lazyclaude/internal/core/choice"
 	"github.com/any-context/lazyclaude/internal/core/config"
 	"github.com/any-context/lazyclaude/internal/core/model"
 	"github.com/any-context/lazyclaude/internal/core/tmux"
@@ -20,227 +15,8 @@ import (
 	"github.com/any-context/lazyclaude/internal/gui"
 	"github.com/any-context/lazyclaude/internal/notify"
 	"github.com/any-context/lazyclaude/internal/session"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 )
-
-// localDaemonProvider wraps session.Manager to implement daemon.SessionProvider.
-// Used as the local backend for CompositeProvider.
-type localDaemonProvider struct {
-	mgr   *session.Manager
-	tmux  tmux.Client
-	paths config.Paths
-
-	lastResizeID string
-	lastResizeW  int
-	lastResizeH  int
-}
-
-// Compile-time check.
-var _ daemon.SessionProvider = (*localDaemonProvider)(nil)
-
-func (p *localDaemonProvider) HasSession(sessionID string) bool {
-	return p.mgr.Store().FindByID(sessionID) != nil
-}
-
-func (p *localDaemonProvider) Host() string { return "" }
-
-func (p *localDaemonProvider) Sessions() ([]daemon.SessionInfo, error) {
-	sessions := p.mgr.Sessions()
-	items := make([]daemon.SessionInfo, len(sessions))
-	for i, s := range sessions {
-		items[i] = sessionToDaemonInfo(s)
-	}
-	return items, nil
-}
-
-func (p *localDaemonProvider) Create(path string) error {
-	if path == "." {
-		abs, err := filepath.Abs(".")
-		if err != nil {
-			return err
-		}
-		path = abs
-	}
-	_, err := p.mgr.Create(context.Background(), path)
-	return err
-}
-
-func (p *localDaemonProvider) Delete(id string) error {
-	return p.mgr.Delete(context.Background(), id)
-}
-
-func (p *localDaemonProvider) Rename(id, newName string) error {
-	return p.mgr.Rename(id, newName)
-}
-
-func (p *localDaemonProvider) PurgeOrphans() (int, error) {
-	return p.mgr.PurgeOrphans()
-}
-
-func (p *localDaemonProvider) CapturePreview(id string, width, height int) (*daemon.PreviewResponse, error) {
-	sess := p.mgr.Store().FindByID(id)
-	if sess == nil {
-		return &daemon.PreviewResponse{}, nil
-	}
-	target := sess.TmuxWindow
-	if target == "" {
-		target = "lazyclaude:" + sess.WindowName()
-	}
-	ctx := context.Background()
-
-	if width > 0 && height > 0 && (id != p.lastResizeID || width != p.lastResizeW || height != p.lastResizeH) {
-		if err := p.tmux.ResizeWindow(ctx, target, width, height); err != nil {
-			return nil, err
-		}
-		p.lastResizeID = id
-		p.lastResizeW = width
-		p.lastResizeH = height
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	content, err := p.tmux.CapturePaneANSI(ctx, target)
-	if err != nil || width <= 0 {
-		return &daemon.PreviewResponse{Content: content}, err
-	}
-
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		if ansi.StringWidth(line) > width {
-			lines[i] = ansi.Truncate(line, width, "")
-		}
-	}
-	if height > 0 && len(lines) > height {
-		lines = lines[:height]
-	}
-
-	var cursorX, cursorY int
-	if pos, posErr := p.tmux.ShowMessage(ctx, target, "#{cursor_x},#{cursor_y}"); posErr == nil {
-		parts := strings.SplitN(strings.TrimSpace(pos), ",", 2)
-		if len(parts) == 2 {
-			cursorX, _ = strconv.Atoi(parts[0])
-			cursorY, _ = strconv.Atoi(parts[1])
-		}
-	}
-
-	return &daemon.PreviewResponse{
-		Content: strings.Join(lines, "\n"),
-		CursorX: cursorX,
-		CursorY: cursorY,
-	}, nil
-}
-
-func (p *localDaemonProvider) CaptureScrollback(id string, _, startLine, endLine int) (*daemon.ScrollbackResponse, error) {
-	sess := p.mgr.Store().FindByID(id)
-	if sess == nil {
-		return &daemon.ScrollbackResponse{}, nil
-	}
-	target := sess.TmuxWindow
-	if target == "" {
-		target = "lazyclaude:" + sess.WindowName()
-	}
-	content, err := p.tmux.CapturePaneANSIRange(context.Background(), target, startLine, endLine)
-	return &daemon.ScrollbackResponse{Content: content}, err
-}
-
-func (p *localDaemonProvider) HistorySize(id string) (int, error) {
-	sess := p.mgr.Store().FindByID(id)
-	if sess == nil {
-		return 0, nil
-	}
-	target := sess.TmuxWindow
-	if target == "" {
-		target = "lazyclaude:" + sess.WindowName()
-	}
-	out, err := p.tmux.ShowMessage(context.Background(), target, "#{history_size}")
-	if err != nil {
-		return 0, err
-	}
-	n, _ := strconv.Atoi(strings.TrimSpace(out))
-	return n, nil
-}
-
-func (p *localDaemonProvider) SendChoice(window string, choiceVal int) error {
-	return tmuxadapter.SendToPane(context.Background(), p.tmux, window, choice.Choice(choiceVal))
-}
-
-func (p *localDaemonProvider) AttachSession(id string) error {
-	sess := p.mgr.Store().FindByID(id)
-	if sess == nil {
-		return fmt.Errorf("session not found: %s", id)
-	}
-	target := "lazyclaude:" + sess.WindowName()
-
-	_ = exec.Command("tmux", "-L", "lazyclaude", "set-option", "-t", "lazyclaude", "window-size", "largest").Run()
-
-	cmd := exec.Command("tmux", "-L", "lazyclaude", "attach-session", "-t", target)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func (p *localDaemonProvider) LaunchLazygit(path string) error {
-	if _, err := exec.LookPath("lazygit"); err != nil {
-		return fmt.Errorf("lazygit is not installed")
-	}
-	cmd := exec.Command("lazygit")
-	cmd.Dir = path
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func (p *localDaemonProvider) CreateWorktree(name, prompt, projectRoot string) error {
-	_, err := p.mgr.CreateWorktree(context.Background(), name, prompt, projectRoot)
-	return err
-}
-
-func (p *localDaemonProvider) ResumeWorktree(worktreePath, prompt, projectRoot string) error {
-	_, err := p.mgr.ResumeWorktree(context.Background(), worktreePath, prompt, projectRoot)
-	return err
-}
-
-func (p *localDaemonProvider) ListWorktrees(projectRoot string) ([]daemon.WorktreeInfo, error) {
-	items, err := session.ListWorktrees(context.Background(), projectRoot)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]daemon.WorktreeInfo, len(items))
-	for i, item := range items {
-		result[i] = daemon.WorktreeInfo{Name: item.Name, Path: item.Path, Branch: item.Branch}
-	}
-	return result, nil
-}
-
-func (p *localDaemonProvider) CreatePMSession(projectRoot string) error {
-	_, err := p.mgr.CreatePMSession(context.Background(), projectRoot)
-	return err
-}
-
-func (p *localDaemonProvider) CreateWorkerSession(name, prompt, projectRoot string) error {
-	_, err := p.mgr.CreateWorkerSession(context.Background(), name, prompt, projectRoot)
-	return err
-}
-
-func (p *localDaemonProvider) ConnectionState() daemon.ConnectionState {
-	return daemon.Connected
-}
-
-// sessionToDaemonInfo converts a session.Session to daemon.SessionInfo.
-func sessionToDaemonInfo(s session.Session) daemon.SessionInfo {
-	return daemon.SessionInfo{
-		ID:         s.ID,
-		Name:       s.Name,
-		Path:       s.Path,
-		Host:       s.Host,
-		Status:     s.Status.String(),
-		Flags:      s.Flags,
-		TmuxWindow: s.TmuxWindow,
-		Role:       string(s.Role),
-	}
-}
 
 // guiCompositeAdapter wraps daemon.CompositeProvider to implement gui.SessionProvider.
 // This bridges the daemon's type system (daemon.SessionInfo etc.) to the GUI's
@@ -268,27 +44,14 @@ type guiCompositeAdapter struct {
 	connectMu        sync.Mutex
 	connecting       map[string]*lazyConn // one entry per host
 
-	// sockRetryFn retries the socket tunnel after a remote session is created.
-	// Set in root.go. Called from completeRemoteCreate when cp.Create succeeds,
-	// because the initial tunnel may have failed (remote tmux server not yet running).
-	sockRetryFn func(host string)
-
 	// onError reports errors to the GUI via showError. Wired in root.go.
 	// lastErrorMsg deduplicates consecutive identical errors to avoid flooding
 	// the GUI when Sessions() fails persistently (e.g. daemon unreachable).
 	onError      func(msg string)
 	lastErrorMsg string
 
-	// Optimistic session creation: tracks placeholder sessions created before
-	// remote connection is established.
-	// sessionErrors maps placeholder session IDs to error messages for display
-	// in the preview pane. remoteSessionMap maps placeholder IDs to the real
-	// remote session IDs for preview capture routing.
 	// guiUpdateFn triggers a GUI refresh from background goroutines.
-	optimisticMu     sync.Mutex
-	sessionErrors    map[string]string // placeholder ID -> error message
-	remoteSessionMap map[string]string // placeholder ID -> remote session ID
-	guiUpdateFn      func()           // triggers gui.Update (wired in root.go)
+	guiUpdateFn func() // triggers gui.Update (wired in root.go)
 }
 
 // Compile-time checks.
@@ -509,14 +272,7 @@ func (a *guiCompositeAdapter) completeRemoteCreate(placeholderID, localPath, hos
 	}
 	debugLog("completeRemoteCreate: cp.Create succeeded")
 
-	// The first session creation starts the remote tmux server. Retry
-	// the socket tunnel now that the server should be running.
-	if a.sockRetryFn != nil {
-		debugLog("completeRemoteCreate: retrying socket tunnel for host=%q", host)
-		a.sockRetryFn(host)
-	}
-
-	// Remove the placeholder — the real remote session will be shown
+	// Remove the placeholder -- the real remote session will be shown
 	// via CompositeProvider.Sessions() from the daemon.
 	debugLog("completeRemoteCreate: removing placeholder %s, remote session visible via daemon", placeholderID[:8])
 	a.localMgr.Store().Remove(placeholderID)
@@ -527,7 +283,6 @@ func (a *guiCompositeAdapter) completeRemoteCreate(placeholderID, localPath, hos
 // failPlaceholder marks a placeholder session as dead and creates a tmux error
 // window so that preview, fullscreen, and visual mode all work normally.
 func (a *guiCompositeAdapter) failPlaceholder(id, msg string) {
-	a.setSessionError(id, msg)
 	a.localMgr.Store().SetStatus(id, session.StatusDead)
 
 	// Create a tmux window that displays the error message.
@@ -565,48 +320,6 @@ func (a *guiCompositeAdapter) failPlaceholder(id, msg string) {
 		a.onError(msg)
 	}
 	a.triggerGUIUpdate()
-}
-
-// setSessionError records an error message for a placeholder session.
-func (a *guiCompositeAdapter) setSessionError(id, msg string) {
-	a.optimisticMu.Lock()
-	defer a.optimisticMu.Unlock()
-	if a.sessionErrors == nil {
-		a.sessionErrors = make(map[string]string)
-	}
-	a.sessionErrors[id] = msg
-}
-
-// sessionError returns the error message for a session, or "".
-func (a *guiCompositeAdapter) sessionError(id string) string {
-	a.optimisticMu.Lock()
-	defer a.optimisticMu.Unlock()
-	return a.sessionErrors[id]
-}
-
-// setRemoteMapping maps a placeholder to the real remote session.
-func (a *guiCompositeAdapter) setRemoteMapping(placeholderID, remoteID string) {
-	a.optimisticMu.Lock()
-	defer a.optimisticMu.Unlock()
-	if a.remoteSessionMap == nil {
-		a.remoteSessionMap = make(map[string]string)
-	}
-	a.remoteSessionMap[placeholderID] = remoteID
-}
-
-// remoteMapping returns the real remote session ID for a placeholder, or "".
-func (a *guiCompositeAdapter) remoteMapping(id string) string {
-	a.optimisticMu.Lock()
-	defer a.optimisticMu.Unlock()
-	return a.remoteSessionMap[id]
-}
-
-// clearOptimistic removes all optimistic state for a session ID.
-func (a *guiCompositeAdapter) clearOptimistic(id string) {
-	a.optimisticMu.Lock()
-	defer a.optimisticMu.Unlock()
-	delete(a.sessionErrors, id)
-	delete(a.remoteSessionMap, id)
 }
 
 // triggerGUIUpdate schedules a GUI refresh if the callback is wired.
@@ -671,7 +384,6 @@ func (a *guiCompositeAdapter) queryRemoteCWD(host string) string {
 }
 
 func (a *guiCompositeAdapter) Delete(id string) error {
-	a.clearOptimistic(id)
 	return a.cp.Delete(id)
 }
 
@@ -684,12 +396,6 @@ func (a *guiCompositeAdapter) PurgeOrphans() (int, error) {
 }
 
 func (a *guiCompositeAdapter) CapturePreview(id string, width, height int) (gui.PreviewResult, error) {
-	// Optimistic placeholder mapped to a real remote session: route to
-	// the remote session for preview capture.
-	if remoteID := a.remoteMapping(id); remoteID != "" {
-		id = remoteID
-	}
-
 	resp, err := a.cp.CapturePreview(id, width, height)
 	if err != nil || resp == nil {
 		return gui.PreviewResult{}, err
@@ -702,9 +408,6 @@ func (a *guiCompositeAdapter) CapturePreview(id string, width, height int) (gui.
 }
 
 func (a *guiCompositeAdapter) CaptureScrollback(id string, width, startLine, endLine int) (gui.PreviewResult, error) {
-	if remoteID := a.remoteMapping(id); remoteID != "" {
-		id = remoteID
-	}
 	resp, err := a.cp.CaptureScrollback(id, width, startLine, endLine)
 	if err != nil || resp == nil {
 		return gui.PreviewResult{}, err
@@ -713,9 +416,6 @@ func (a *guiCompositeAdapter) CaptureScrollback(id string, width, startLine, end
 }
 
 func (a *guiCompositeAdapter) HistorySize(id string) (int, error) {
-	if remoteID := a.remoteMapping(id); remoteID != "" {
-		id = remoteID
-	}
 	return a.cp.HistorySize(id)
 }
 
@@ -732,9 +432,6 @@ func (a *guiCompositeAdapter) SendChoice(window string, c gui.Choice) error {
 }
 
 func (a *guiCompositeAdapter) AttachSession(id string) error {
-	if remoteID := a.remoteMapping(id); remoteID != "" {
-		id = remoteID
-	}
 	return a.cp.AttachSession(id)
 }
 
@@ -858,101 +555,6 @@ func (a *guiCompositeAdapter) createWorkerSessionWithHost(name, prompt, projectR
 		projectRoot = a.resolveRemotePath(projectRoot, host)
 	}
 	return a.cp.CreateWorkerSession(name, prompt, projectRoot, host)
-}
-
-// --- compositeInputForwarder ---
-
-// compositeInputForwarder routes key forwarding to local tmux or remote daemon
-// based on the current fullscreen session context. When host is empty, keys are
-// forwarded via the local tmux client. When host is set, keys are routed through
-// the RemoteProvider (direct socket with daemon API fallback).
-type compositeInputForwarder struct {
-	local gui.InputForwarder       // local tmux send-keys
-	cp    *daemon.CompositeProvider // for finding the remote provider
-
-	mu        sync.RWMutex
-	sessionID string // current fullscreen session ID
-	host      string // empty for local sessions
-}
-
-// Compile-time checks.
-var _ gui.InputForwarder = (*compositeInputForwarder)(nil)
-var _ gui.SessionContextSetter = (*compositeInputForwarder)(nil)
-
-func newCompositeInputForwarder(local gui.InputForwarder, cp *daemon.CompositeProvider) *compositeInputForwarder {
-	return &compositeInputForwarder{local: local, cp: cp}
-}
-
-// SetSessionContext updates the forwarding target. Called when entering/exiting fullscreen.
-func (f *compositeInputForwarder) SetSessionContext(sessionID, host string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	debugLog("compositeInputForwarder.SetSessionContext: sessionID=%q host=%q", sessionID, host)
-	f.sessionID = sessionID
-	f.host = host
-}
-
-func (f *compositeInputForwarder) ForwardKey(target string, key string) error {
-	f.mu.RLock()
-	host := f.host
-	sid := f.sessionID
-	f.mu.RUnlock()
-
-	if host == "" {
-		return f.local.ForwardKey(target, key)
-	}
-	rp := f.remoteProvider(host)
-	if rp == nil {
-		return fmt.Errorf("no remote provider for host %q", host)
-	}
-	return rp.SendKeys(sid, key)
-}
-
-func (f *compositeInputForwarder) ForwardLiteral(target string, text string) error {
-	f.mu.RLock()
-	host := f.host
-	sid := f.sessionID
-	f.mu.RUnlock()
-
-	if host == "" {
-		return f.local.ForwardLiteral(target, text)
-	}
-	rp := f.remoteProvider(host)
-	if rp == nil {
-		return fmt.Errorf("no remote provider for host %q", host)
-	}
-	return rp.SendKeysLiteral(sid, text)
-}
-
-func (f *compositeInputForwarder) ForwardPaste(target string, text string) error {
-	f.mu.RLock()
-	host := f.host
-	sid := f.sessionID
-	f.mu.RUnlock()
-
-	if host == "" {
-		return f.local.ForwardPaste(target, text)
-	}
-	rp := f.remoteProvider(host)
-	if rp == nil {
-		return fmt.Errorf("no remote provider for host %q", host)
-	}
-	return rp.PasteToPane(sid, text)
-}
-
-// remoteProvider returns the concrete RemoteProvider for the given host.
-func (f *compositeInputForwarder) remoteProvider(host string) *daemon.RemoteProvider {
-	sp := f.cp.RemoteProvider(host)
-	if sp == nil {
-		debugLog("compositeInputForwarder.remoteProvider: no provider for host=%q", host)
-		return nil
-	}
-	rp, ok := sp.(*daemon.RemoteProvider)
-	if !ok {
-		debugLog("compositeInputForwarder.remoteProvider: provider for host=%q is %T, not *RemoteProvider", host, sp)
-		return nil
-	}
-	return rp
 }
 
 // daemonInfoToGUIItem converts daemon.SessionInfo to gui.SessionItem.
