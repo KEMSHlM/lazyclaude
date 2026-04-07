@@ -68,8 +68,9 @@ func (rp *RemoteProvider) QueryCWD(ctx context.Context) (string, error) {
 }
 
 // SetTmuxClient sets the forwarded tmux.Client for direct pane operations.
-// When set, CapturePreview, CaptureScrollback, HistorySize, and SendChoice
-// use the forwarded socket directly instead of the daemon API.
+// When set, CapturePreview, CaptureScrollback, HistorySize, SendChoice,
+// and SendKeys use the forwarded socket directly instead of the daemon API.
+// If the forwarded socket fails, these methods fall back to the daemon API.
 // Must be called before the GUI event loop starts.
 func (rp *RemoteProvider) SetTmuxClient(tc tmux.Client) {
 	rp.mu.Lock()

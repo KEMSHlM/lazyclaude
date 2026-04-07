@@ -656,6 +656,8 @@ func TestRemoteProvider_HistorySize_Fallback(t *testing.T) {
 	defer srv.Close()
 
 	mock := tmux.NewMockClient()
+	// historySizeDirect calls ShowMessage (not CapturePaneANSI), so inject
+	// ErrShowMessage to trigger the fallback path.
 	mock.ErrShowMessage = fmt.Errorf("socket not connected")
 	rp.SetTmuxClient(mock)
 
@@ -681,7 +683,6 @@ func TestRemoteProvider_SendChoice_Fallback(t *testing.T) {
 	defer srv.Close()
 
 	mock := tmux.NewMockClient()
-	mock.ErrCapture = fmt.Errorf("socket not connected")
 	mock.ErrSendKeys = fmt.Errorf("socket not connected")
 	rp.SetTmuxClient(mock)
 
