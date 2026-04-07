@@ -131,6 +131,61 @@ func TestParseTTYFromStat(t *testing.T) {
 	}
 }
 
+func TestParseSIDFromStatLine(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    int
+		wantErr bool
+	}{
+		{
+			name: "session leader",
+			// pid=123, comm=(bash), state=S, ppid=122, pgrp=123, session=123, tty=34817
+			input: "123 (bash) S 122 123 123 34817 123 4194304 ...",
+			want:  123,
+		},
+		{
+			name: "child process different sid",
+			// pid=456, comm=(gitstatus), state=S, ppid=123, pgrp=456, session=123
+			input: "456 (gitstatus) S 123 456 123 0 456 4194304 ...",
+			want:  123,
+		},
+		{
+			name: "comm with spaces",
+			input: "789 (my shell) S 100 789 789 34817 789 4194304 ...",
+			want:  789,
+		},
+		{
+			name:    "malformed no paren",
+			input:   "123 bash S 122",
+			wantErr: true,
+		},
+		{
+			name:    "too few fields",
+			input:   "123 (bash) S 122 123",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseSIDFromStatLine(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("parseSIDFromStatLine = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsShellName(t *testing.T) {
 	for _, name := range []string{"bash", "zsh", "fish", "sh"} {
 		if !isShellName(name) {

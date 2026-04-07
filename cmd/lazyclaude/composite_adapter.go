@@ -448,6 +448,7 @@ func (a *guiCompositeAdapter) completeRemoteCreate(placeholderID, localPath, hos
 		a.failPlaceholder(placeholderID, fmt.Sprintf("Session creation failed: %v", err))
 		return
 	}
+	debugLog("completeRemoteCreate: cp.Create succeeded")
 
 	// Update the placeholder's path to the resolved remote path.
 	a.localMgr.Store().Rename(placeholderID, a.localMgr.Store().GenerateName(remotePath))
