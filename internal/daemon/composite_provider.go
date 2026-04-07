@@ -85,6 +85,7 @@ type CompositeProvider struct {
 	router  MessageSender
 
 	// staleCache holds the last known sessions from disconnected remotes.
+	// Entries are stored with Host already populated (set in Sessions()).
 	staleCache map[string][]SessionInfo
 }
 

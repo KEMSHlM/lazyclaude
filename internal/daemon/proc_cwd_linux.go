@@ -115,14 +115,17 @@ func readProcInfo(pid int) (procInfo, error) {
 	}
 	comm := strings.TrimSpace(string(commData))
 
-	// Parse tty_nr and session ID from /proc/{pid}/stat
-	statPath := fmt.Sprintf("/proc/%d/stat", pid)
-	hasPTY, err := checkPTY(statPath)
+	// Parse tty_nr and session ID from /proc/{pid}/stat (single read).
+	statData, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
 		return procInfo{}, err
 	}
-
-	sid, err := parseSIDFromStat(statPath)
+	statLine := string(statData)
+	hasPTY, err := parseTTYFromStat(statLine)
+	if err != nil {
+		return procInfo{}, err
+	}
+	sid, err := parseSIDFromStatLine(statLine)
 	if err != nil {
 		return procInfo{}, err
 	}
@@ -142,16 +145,6 @@ func parseUID(status string) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("Uid line not found")
-}
-
-// checkPTY reads /proc/{pid}/stat and checks if the tty_nr field indicates
-// a PTY device. PTY devices have major number 136 (devpts).
-func checkPTY(statPath string) (bool, error) {
-	data, err := os.ReadFile(statPath)
-	if err != nil {
-		return false, err
-	}
-	return parseTTYFromStat(string(data))
 }
 
 // parseTTYFromStat extracts tty_nr from a /proc/{pid}/stat line and checks
@@ -179,15 +172,6 @@ func parseTTYFromStat(stat string) (bool, error) {
 	return major == 136, nil
 }
 
-// parseSIDFromStat reads the session ID (sid) from /proc/{pid}/stat.
-func parseSIDFromStat(statPath string) (int, error) {
-	data, err := os.ReadFile(statPath)
-	if err != nil {
-		return 0, err
-	}
-	return parseSIDFromStatLine(string(data))
-}
-
 // parseSIDFromStatLine extracts the session ID from a /proc/{pid}/stat line.
 // After the closing ')' of the comm field, fields are:
 // state(0) ppid(1) pgrp(2) session(3) ...
@@ -200,7 +184,11 @@ func parseSIDFromStatLine(stat string) (int, error) {
 	if len(fields) < 4 {
 		return 0, fmt.Errorf("malformed stat: too few fields for sid")
 	}
-	return strconv.Atoi(fields[3])
+	sid, err := strconv.Atoi(fields[3])
+	if err != nil {
+		return 0, fmt.Errorf("parse sid: %w", err)
+	}
+	return sid, nil
 }
 
 // buildProcessTree returns a set of PIDs that are the given root PID or
