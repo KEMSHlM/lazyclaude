@@ -48,24 +48,8 @@ func (t *Tunnel) Start(ctx context.Context) error {
 	}
 	t.localPort = localPort
 
-	sshHost, port := splitHostPort(t.host)
 	forwardSpec := fmt.Sprintf("%d:127.0.0.1:%d", localPort, t.remotePort)
-
-	args := []string{
-		"-L", forwardSpec,
-		"-N", // no remote command
-		"-a", // disable agent forwarding
-		"-o", "ServerAliveInterval=15",
-		"-o", "ServerAliveCountMax=3",
-		"-o", "ExitOnForwardFailure=yes",
-		"-o", "BatchMode=yes",
-		"-o", "ControlMaster=no",
-		"-o", "ControlPath=none",
-	}
-	if port != "" {
-		args = append(args, "-p", port)
-	}
-	args = append(args, sshHost)
+	args := append([]string{"-L", forwardSpec}, baseSSHArgs(t.host)...)
 
 	debugLog("Tunnel.Start: host=%q remotePort=%d localPort=%d", t.host, t.remotePort, localPort)
 	debugLog("Tunnel.Start: ssh args=%v", args)
@@ -215,11 +199,16 @@ func NewTunnelWithPort(host string, remotePort, localPort int) *Tunnel {
 // SSHArgs returns the SSH command-line arguments the tunnel would use.
 // Useful for testing command construction without starting a process.
 func (t *Tunnel) SSHArgs() []string {
-	sshHost, port := splitHostPort(t.host)
 	forwardSpec := fmt.Sprintf("%d:127.0.0.1:%d", t.localPort, t.remotePort)
+	return append([]string{"-L", forwardSpec}, baseSSHArgs(t.host)...)
+}
 
+// baseSSHArgs returns the common SSH arguments shared by tunnel and
+// other SSH-based operations. The returned slice includes -N, keepalive
+// options, security options, and the resolved host/port.
+func baseSSHArgs(host string) []string {
+	sshHost, port := splitHostPort(host)
 	args := []string{
-		"-L", forwardSpec,
 		"-N",
 		"-a",
 		"-o", "ServerAliveInterval=15",
@@ -232,6 +221,5 @@ func (t *Tunnel) SSHArgs() []string {
 	if port != "" {
 		args = append(args, "-p", port)
 	}
-	args = append(args, sshHost)
-	return args
+	return append(args, sshHost)
 }

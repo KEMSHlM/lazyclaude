@@ -67,8 +67,8 @@ func newDaemonCmd() *cobra.Command {
 				return fmt.Errorf("start daemon: %w", err)
 			}
 
-			// Print JSON to stdout so parseDaemonOutput can parse it.
-			// daemon.json is also written to disk for file-based discovery.
+			// Print JSON to stdout. daemon.json is also written to
+			// disk for file-based discovery.
 			if err := json.NewEncoder(os.Stdout).Encode(daemon.DaemonInfo{Port: actualPort, Token: token}); err != nil {
 				return fmt.Errorf("write daemon info to stdout: %w", err)
 			}

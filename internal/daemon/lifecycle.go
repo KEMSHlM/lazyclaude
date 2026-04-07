@@ -1,11 +1,9 @@
 package daemon
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 // DaemonInfo holds the connection details for a running remote daemon.
@@ -84,27 +82,3 @@ func (lm *LifecycleManager) DiscoverRemoteDaemon(ctx context.Context, host strin
 	return &info, nil
 }
 
-// parseDaemonOutput extracts DaemonInfo from the daemon's stdout.
-// The daemon prints a JSON line like: {"port":12345,"token":"abc..."}
-func parseDaemonOutput(output string) (*DaemonInfo, error) {
-	var lastParseErr error
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || !strings.HasPrefix(line, "{") {
-			continue
-		}
-		var info DaemonInfo
-		if err := json.Unmarshal([]byte(line), &info); err != nil {
-			lastParseErr = err
-			continue
-		}
-		if info.Port > 0 && info.Token != "" {
-			return &info, nil
-		}
-	}
-	if lastParseErr != nil {
-		return nil, fmt.Errorf("no valid daemon info in output (last parse error: %w)", lastParseErr)
-	}
-	return nil, fmt.Errorf("no valid daemon info in output: %s", output)
-}
