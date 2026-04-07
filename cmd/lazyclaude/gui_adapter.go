@@ -193,7 +193,7 @@ func (a *guiCompositeAdapter) createWithHost(path, host string) error {
 	placeholder := session.Session{
 		ID:        uuid.New().String(),
 		Name:      a.localMgr.Store().GenerateName(host),
-		Path:      path,
+		Path:      host, // Temporary: replaced with remote CWD in completeRemoteCreate
 		Host:      host,
 		Status:    session.StatusRunning,
 		CreatedAt: time.Now(),
