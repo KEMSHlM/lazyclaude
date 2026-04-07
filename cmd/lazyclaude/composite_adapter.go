@@ -477,30 +477,11 @@ func (a *guiCompositeAdapter) completeRemoteCreate(placeholderID, localPath, hos
 		a.sockRetryFn(host)
 	}
 
-	// Update the placeholder's path to the resolved remote path.
-	a.localMgr.Store().Rename(placeholderID, a.localMgr.Store().GenerateName(remotePath))
-	// Note: Store.Rename only changes the name. We need to update Path too.
-	// Since Store doesn't expose a SetPath, we re-use SetStatus + path stays as-is
-	// (the name is sufficient for sidebar display).
-
-	// Find the newly created remote session and map it to the placeholder.
-	sessions, err := a.cp.Sessions()
-	debugLog("completeRemoteCreate: Sessions() count=%d err=%v", len(sessions), err)
-	if err == nil {
-		matched := false
-		for _, s := range sessions {
-			debugLog("completeRemoteCreate: candidate id=%s host=%q path=%q", s.ID[:8], s.Host, s.Path)
-			if s.Host == host && s.Path == remotePath && s.ID != placeholderID {
-				debugLog("completeRemoteCreate: MATCHED remoteID=%s", s.ID[:8])
-				a.setRemoteMapping(placeholderID, s.ID)
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			debugLog("completeRemoteCreate: NO MATCH found for host=%q path=%q", host, remotePath)
-		}
-	}
+	// Remove the placeholder — the real remote session will be shown
+	// via CompositeProvider.Sessions() from the daemon.
+	debugLog("completeRemoteCreate: removing placeholder %s, remote session visible via daemon", placeholderID[:8])
+	a.localMgr.Store().Remove(placeholderID)
+	_ = a.localMgr.Store().Save()
 	a.triggerGUIUpdate()
 }
 
