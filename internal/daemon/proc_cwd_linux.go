@@ -68,6 +68,11 @@ func detectUserShellCWD() (string, error) {
 		if !isShellName(info.comm) {
 			continue
 		}
+		// Only consider session leaders (pid == sid) to exclude child
+		// processes like gitstatus that may have CWD set to "/".
+		if pid != info.sid {
+			continue
+		}
 
 		cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid))
 		if err != nil {
@@ -88,6 +93,7 @@ type procInfo struct {
 	uid    int
 	comm   string
 	hasPTY bool
+	sid    int // session ID from /proc/{pid}/stat
 }
 
 // readProcInfo reads uid, comm, and tty info for a given PID from /proc.
@@ -109,13 +115,22 @@ func readProcInfo(pid int) (procInfo, error) {
 	}
 	comm := strings.TrimSpace(string(commData))
 
-	// Check if process has a PTY by reading tty_nr from /proc/{pid}/stat
-	hasPTY, err := checkPTY(fmt.Sprintf("/proc/%d/stat", pid))
+	// Parse tty_nr and session ID from /proc/{pid}/stat (single read).
+	statData, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return procInfo{}, err
+	}
+	statLine := string(statData)
+	hasPTY, err := parseTTYFromStat(statLine)
+	if err != nil {
+		return procInfo{}, err
+	}
+	sid, err := parseSIDFromStatLine(statLine)
 	if err != nil {
 		return procInfo{}, err
 	}
 
-	return procInfo{uid: uid, comm: comm, hasPTY: hasPTY}, nil
+	return procInfo{uid: uid, comm: comm, hasPTY: hasPTY, sid: sid}, nil
 }
 
 // parseUID extracts the real UID from /proc/{pid}/status content.
@@ -130,16 +145,6 @@ func parseUID(status string) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("Uid line not found")
-}
-
-// checkPTY reads /proc/{pid}/stat and checks if the tty_nr field indicates
-// a PTY device. PTY devices have major number 136 (devpts).
-func checkPTY(statPath string) (bool, error) {
-	data, err := os.ReadFile(statPath)
-	if err != nil {
-		return false, err
-	}
-	return parseTTYFromStat(string(data))
 }
 
 // parseTTYFromStat extracts tty_nr from a /proc/{pid}/stat line and checks
@@ -165,6 +170,25 @@ func parseTTYFromStat(stat string) (bool, error) {
 	// Linux new_encode_dev: major occupies bits 19..8 (12 bits)
 	major := (ttyNr >> 8) & 0xfff
 	return major == 136, nil
+}
+
+// parseSIDFromStatLine extracts the session ID from a /proc/{pid}/stat line.
+// After the closing ')' of the comm field, fields are:
+// state(0) ppid(1) pgrp(2) session(3) ...
+func parseSIDFromStatLine(stat string) (int, error) {
+	idx := strings.LastIndex(stat, ")")
+	if idx < 0 {
+		return 0, fmt.Errorf("malformed stat: no closing paren")
+	}
+	fields := strings.Fields(stat[idx+1:])
+	if len(fields) < 4 {
+		return 0, fmt.Errorf("malformed stat: too few fields for sid")
+	}
+	sid, err := strconv.Atoi(fields[3])
+	if err != nil {
+		return 0, fmt.Errorf("parse sid: %w", err)
+	}
+	return sid, nil
 }
 
 // buildProcessTree returns a set of PIDs that are the given root PID or

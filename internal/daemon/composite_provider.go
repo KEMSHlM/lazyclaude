@@ -85,6 +85,7 @@ type CompositeProvider struct {
 	router  MessageSender
 
 	// staleCache holds the last known sessions from disconnected remotes.
+	// Entries are stored with Host already populated (set in Sessions()).
 	staleCache map[string][]SessionInfo
 }
 
@@ -141,6 +142,10 @@ func (c *CompositeProvider) Sessions() ([]SessionInfo, error) {
 		if rp.ConnectionState() == Connected {
 			remote, rerr := rp.Sessions()
 			if rerr == nil {
+				// Set Host field so the TUI can distinguish remote sessions.
+				for i := range remote {
+					remote[i].Host = host
+				}
 				items = append(items, remote...)
 				updates = append(updates, cacheUpdate{host: host, sessions: remote})
 			} else {
