@@ -268,27 +268,14 @@ type guiCompositeAdapter struct {
 	connectMu        sync.Mutex
 	connecting       map[string]*lazyConn // one entry per host
 
-	// sockRetryFn retries the socket tunnel after a remote session is created.
-	// Set in root.go. Called from completeRemoteCreate when cp.Create succeeds,
-	// because the initial tunnel may have failed (remote tmux server not yet running).
-	sockRetryFn func(host string)
-
 	// onError reports errors to the GUI via showError. Wired in root.go.
 	// lastErrorMsg deduplicates consecutive identical errors to avoid flooding
 	// the GUI when Sessions() fails persistently (e.g. daemon unreachable).
 	onError      func(msg string)
 	lastErrorMsg string
 
-	// Optimistic session creation: tracks placeholder sessions created before
-	// remote connection is established.
-	// sessionErrors maps placeholder session IDs to error messages for display
-	// in the preview pane. remoteSessionMap maps placeholder IDs to the real
-	// remote session IDs for preview capture routing.
 	// guiUpdateFn triggers a GUI refresh from background goroutines.
-	optimisticMu     sync.Mutex
-	sessionErrors    map[string]string // placeholder ID -> error message
-	remoteSessionMap map[string]string // placeholder ID -> remote session ID
-	guiUpdateFn      func()           // triggers gui.Update (wired in root.go)
+	guiUpdateFn func() // triggers gui.Update (wired in root.go)
 }
 
 // Compile-time checks.
@@ -509,13 +496,6 @@ func (a *guiCompositeAdapter) completeRemoteCreate(placeholderID, localPath, hos
 	}
 	debugLog("completeRemoteCreate: cp.Create succeeded")
 
-	// The first session creation starts the remote tmux server. Retry
-	// the socket tunnel now that the server should be running.
-	if a.sockRetryFn != nil {
-		debugLog("completeRemoteCreate: retrying socket tunnel for host=%q", host)
-		a.sockRetryFn(host)
-	}
-
 	// Remove the placeholder — the real remote session will be shown
 	// via CompositeProvider.Sessions() from the daemon.
 	debugLog("completeRemoteCreate: removing placeholder %s, remote session visible via daemon", placeholderID[:8])
@@ -527,7 +507,6 @@ func (a *guiCompositeAdapter) completeRemoteCreate(placeholderID, localPath, hos
 // failPlaceholder marks a placeholder session as dead and creates a tmux error
 // window so that preview, fullscreen, and visual mode all work normally.
 func (a *guiCompositeAdapter) failPlaceholder(id, msg string) {
-	a.setSessionError(id, msg)
 	a.localMgr.Store().SetStatus(id, session.StatusDead)
 
 	// Create a tmux window that displays the error message.
@@ -565,48 +544,6 @@ func (a *guiCompositeAdapter) failPlaceholder(id, msg string) {
 		a.onError(msg)
 	}
 	a.triggerGUIUpdate()
-}
-
-// setSessionError records an error message for a placeholder session.
-func (a *guiCompositeAdapter) setSessionError(id, msg string) {
-	a.optimisticMu.Lock()
-	defer a.optimisticMu.Unlock()
-	if a.sessionErrors == nil {
-		a.sessionErrors = make(map[string]string)
-	}
-	a.sessionErrors[id] = msg
-}
-
-// sessionError returns the error message for a session, or "".
-func (a *guiCompositeAdapter) sessionError(id string) string {
-	a.optimisticMu.Lock()
-	defer a.optimisticMu.Unlock()
-	return a.sessionErrors[id]
-}
-
-// setRemoteMapping maps a placeholder to the real remote session.
-func (a *guiCompositeAdapter) setRemoteMapping(placeholderID, remoteID string) {
-	a.optimisticMu.Lock()
-	defer a.optimisticMu.Unlock()
-	if a.remoteSessionMap == nil {
-		a.remoteSessionMap = make(map[string]string)
-	}
-	a.remoteSessionMap[placeholderID] = remoteID
-}
-
-// remoteMapping returns the real remote session ID for a placeholder, or "".
-func (a *guiCompositeAdapter) remoteMapping(id string) string {
-	a.optimisticMu.Lock()
-	defer a.optimisticMu.Unlock()
-	return a.remoteSessionMap[id]
-}
-
-// clearOptimistic removes all optimistic state for a session ID.
-func (a *guiCompositeAdapter) clearOptimistic(id string) {
-	a.optimisticMu.Lock()
-	defer a.optimisticMu.Unlock()
-	delete(a.sessionErrors, id)
-	delete(a.remoteSessionMap, id)
 }
 
 // triggerGUIUpdate schedules a GUI refresh if the callback is wired.
@@ -671,7 +608,6 @@ func (a *guiCompositeAdapter) queryRemoteCWD(host string) string {
 }
 
 func (a *guiCompositeAdapter) Delete(id string) error {
-	a.clearOptimistic(id)
 	return a.cp.Delete(id)
 }
 
@@ -684,12 +620,6 @@ func (a *guiCompositeAdapter) PurgeOrphans() (int, error) {
 }
 
 func (a *guiCompositeAdapter) CapturePreview(id string, width, height int) (gui.PreviewResult, error) {
-	// Optimistic placeholder mapped to a real remote session: route to
-	// the remote session for preview capture.
-	if remoteID := a.remoteMapping(id); remoteID != "" {
-		id = remoteID
-	}
-
 	resp, err := a.cp.CapturePreview(id, width, height)
 	if err != nil || resp == nil {
 		return gui.PreviewResult{}, err
@@ -702,9 +632,6 @@ func (a *guiCompositeAdapter) CapturePreview(id string, width, height int) (gui.
 }
 
 func (a *guiCompositeAdapter) CaptureScrollback(id string, width, startLine, endLine int) (gui.PreviewResult, error) {
-	if remoteID := a.remoteMapping(id); remoteID != "" {
-		id = remoteID
-	}
 	resp, err := a.cp.CaptureScrollback(id, width, startLine, endLine)
 	if err != nil || resp == nil {
 		return gui.PreviewResult{}, err
@@ -713,9 +640,6 @@ func (a *guiCompositeAdapter) CaptureScrollback(id string, width, startLine, end
 }
 
 func (a *guiCompositeAdapter) HistorySize(id string) (int, error) {
-	if remoteID := a.remoteMapping(id); remoteID != "" {
-		id = remoteID
-	}
 	return a.cp.HistorySize(id)
 }
 
@@ -732,9 +656,6 @@ func (a *guiCompositeAdapter) SendChoice(window string, c gui.Choice) error {
 }
 
 func (a *guiCompositeAdapter) AttachSession(id string) error {
-	if remoteID := a.remoteMapping(id); remoteID != "" {
-		id = remoteID
-	}
 	return a.cp.AttachSession(id)
 }
 

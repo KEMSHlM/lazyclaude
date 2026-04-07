@@ -134,10 +134,9 @@ func newRootCmd() *cobra.Command {
 			// remoteConns tracks active RemoteConnections for status display.
 			var remoteConnsMu sync.Mutex
 			remoteConns := make(map[string]*daemon.RemoteConnection)
-			sockChecker := &socketHealthChecker{}
 
-			// connectRemoteHost establishes a full remote connection pipeline:
-			// daemon connection + socket tunnel + provider registration.
+			// connectRemoteHost establishes a remote connection pipeline:
+			// daemon connection + provider registration.
 			connectRemoteHost := func(host string) error {
 				debugLog("connectRemoteHost: host=%q", host)
 				remoteConn := daemon.NewRemoteConnection(host, lifecycleMgr, clientFactory)
@@ -149,29 +148,6 @@ func newRootCmd() *cobra.Command {
 
 				remoteProvider := daemon.NewRemoteProvider(host, remoteConn)
 				lc.Register("remote-conn-"+host, func() { remoteConn.Disconnect() })
-
-				// Socket forwarding for direct tmux pane operations.
-				sockPath := daemon.SocketTunnelLocalPath(host)
-				sockTunnel := daemon.NewSocketTunnel(host, sockPath, "")
-				debugLog("connectRemoteHost: socket tunnel starting sockPath=%q", sockPath)
-				if sockErr := sockTunnel.Start(context.Background()); sockErr != nil {
-					debugLog("connectRemoteHost: socket tunnel failed: %v", sockErr)
-					fmt.Fprintf(os.Stderr, "warning: tmux socket tunnel to %s: %v\n", host, sockErr)
-				} else {
-					debugLog("connectRemoteHost: socket tunnel started")
-					remoteProvider.SetTmuxClient(sockTunnel.TmuxClient())
-					lc.Register("sock-tunnel-"+host, func() { sockTunnel.Stop() })
-					sockChecker.set(host, sockTunnel, remoteProvider)
-
-					// Re-establish socket tunnel on reconnection.
-					remoteConn.OnReconnect(func() {
-						newSock := daemon.NewSocketTunnel(host, sockPath, "")
-						if err := newSock.Start(context.Background()); err == nil {
-							remoteProvider.SetTmuxClient(newSock.TmuxClient())
-							sockChecker.set(host, newSock, remoteProvider)
-						}
-					})
-				}
 
 				composite.AddRemote(host, remoteProvider)
 
@@ -210,23 +186,6 @@ func newRootCmd() *cobra.Command {
 			}
 			compositeAdapter.windowActivityFn = app.WindowActivityMap
 			compositeAdapter.onError = app.ScheduleError
-			compositeAdapter.sockRetryFn = func(host string) {
-				sockPath := daemon.SocketTunnelLocalPath(host)
-				sockTunnel := daemon.NewSocketTunnel(host, sockPath, "")
-				debugLog("sockRetryFn: retrying socket tunnel for host=%q sockPath=%q", host, sockPath)
-				if err := sockTunnel.Start(context.Background()); err != nil {
-					debugLog("sockRetryFn: socket tunnel retry failed: %v", err)
-					return
-				}
-				debugLog("sockRetryFn: socket tunnel retry succeeded")
-				if sp := composite.RemoteProvider(host); sp != nil {
-					if rp, ok := sp.(*daemon.RemoteProvider); ok {
-						rp.SetTmuxClient(sockTunnel.TmuxClient())
-						lc.Register("sock-tunnel-retry-"+host, func() { sockTunnel.Stop() })
-						sockChecker.set(host, sockTunnel, rp)
-					}
-				}
-			}
 			compositeAdapter.guiUpdateFn = func() {
 				app.Gui().Update(func(_ *gocui.Gui) error { return nil })
 			}
@@ -298,7 +257,6 @@ func newRootCmd() *cobra.Command {
 			ctrlMgr.tryConnect()
 			app.SetOnTick(func() {
 				ctrlMgr.ensureConnected()
-				sockChecker.check()
 			})
 			lc.Register("control-client", ctrlMgr.close)
 
@@ -785,74 +743,6 @@ func (a *sessionAdapter) AttachSession(id string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
-}
-
-// controlManager handles control mode connection lifecycle.
-// socketHealthEntry tracks a socket tunnel and its associated remote provider
-// for periodic health checking and reconnection.
-type socketHealthEntry struct {
-	tunnel   *daemon.SocketTunnel
-	provider *daemon.RemoteProvider
-}
-
-// socketHealthChecker periodically checks socket tunnel health and reconnects.
-// Designed to be called from the GUI ticker (every 100ms); internally throttles
-// to ~5s intervals using a counter. Uses host-keyed map to prevent stale entries
-// from accumulating across reconnections.
-type socketHealthChecker struct {
-	mu      sync.Mutex
-	entries map[string]socketHealthEntry // host -> entry
-	counter int                          // ticker call counter for throttling
-}
-
-// set registers or replaces the socket tunnel for a host.
-// Replaces any previous entry for the same host.
-func (s *socketHealthChecker) set(host string, tunnel *daemon.SocketTunnel, provider *daemon.RemoteProvider) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.entries == nil {
-		s.entries = make(map[string]socketHealthEntry)
-	}
-	s.entries[host] = socketHealthEntry{tunnel: tunnel, provider: provider}
-}
-
-// check is called from the ticker. Throttles to roughly every 5 seconds
-// (50 ticks at 100ms interval).
-func (s *socketHealthChecker) check() {
-	s.mu.Lock()
-	s.counter++
-	if s.counter < 50 {
-		s.mu.Unlock()
-		return
-	}
-	s.counter = 0
-
-	// Snapshot entries under lock.
-	type snapshot struct {
-		host  string
-		entry socketHealthEntry
-	}
-	snaps := make([]snapshot, 0, len(s.entries))
-	for host, e := range s.entries {
-		snaps = append(snaps, snapshot{host: host, entry: e})
-	}
-	s.mu.Unlock()
-
-	for _, snap := range snaps {
-		if snap.entry.tunnel != nil && !snap.entry.tunnel.IsAlive() {
-			sockPath := daemon.SocketTunnelLocalPath(snap.host)
-			newTunnel := daemon.NewSocketTunnel(snap.host, sockPath, "")
-			if err := newTunnel.Start(context.Background()); err == nil {
-				snap.entry.provider.SetTmuxClient(newTunnel.TmuxClient())
-				s.mu.Lock()
-				s.entries[snap.host] = socketHealthEntry{
-					tunnel:   newTunnel,
-					provider: snap.entry.provider,
-				}
-				s.mu.Unlock()
-			}
-		}
-	}
 }
 
 type controlManager struct {
