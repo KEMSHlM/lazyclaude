@@ -38,9 +38,9 @@ func (e *ExecSSHExecutor) Copy(ctx context.Context, host, localPath, remotePath 
 	return cmd.Run()
 }
 
-// posixQuote wraps a string in single quotes, escaping embedded single quotes.
+// PosixQuote wraps a string in single quotes, escaping embedded single quotes.
 // This prevents shell interpretation of metacharacters in remote commands.
-func posixQuote(s string) string {
+func PosixQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 

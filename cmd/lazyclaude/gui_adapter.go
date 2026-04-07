@@ -234,7 +234,9 @@ func (a *guiCompositeAdapter) completeRemoteCreate(placeholderID, localPath, hos
 		sess.Status = session.StatusRunning
 		sess.TmuxWindow = mirrorName
 	})
-	_ = store.Save()
+	if err := store.Save(); err != nil {
+		debugLog("completeRemoteCreate: save store failed: %v", err)
+	}
 	debugLog("completeRemoteCreate: mirror window %q created for remote session %q", mirrorName, resp.ID)
 	a.triggerGUIUpdate()
 }
@@ -252,17 +254,17 @@ func (a *guiCompositeAdapter) remoteProvider(host string) *daemon.RemoteProvider
 	return rp
 }
 
-
 // createMirrorWindow creates a local tmux window that SSH-attaches to a
 // remote lazyclaude tmux session. The remote command is base64-encoded
 // to prevent shell injection from user-controlled host strings.
 func (a *guiCompositeAdapter) createMirrorWindow(host, remoteWindow, localWindowName string) error {
-	// Build the remote tmux attach command.
+	// Build the remote tmux attach command. Quote the target to prevent
+	// shell injection from untrusted TmuxWindow values (fetched from daemon API).
 	remoteTarget := "lazyclaude:" + remoteWindow
 	remoteCmd := fmt.Sprintf(
 		"tmux -L lazyclaude set-option -t lazyclaude window-size largest 2>/dev/null; "+
 			"tmux -L lazyclaude attach-session -t %s",
-		remoteTarget,
+		daemon.PosixQuote(remoteTarget),
 	)
 
 	// Base64-encode the remote command to prevent shell injection.
@@ -315,7 +317,9 @@ func (a *guiCompositeAdapter) createMirrorForExisting(host string, s daemon.Sess
 		TmuxWindow: mirrorName,
 	}
 	a.localMgr.Store().Add(sess, s.Path)
-	_ = a.localMgr.Store().Save()
+	if err := a.localMgr.Store().Save(); err != nil {
+		debugLog("createMirrorForExisting: save store failed: %v", err)
+	}
 	debugLog("createMirrorForExisting: mirror %q created for session %q", mirrorName, s.ID)
 }
 
@@ -450,10 +454,12 @@ func (a *guiCompositeAdapter) Rename(id, newName string) error {
 	}
 	if sess.Host != "" {
 		// Remote session: rename on daemon + update local store.
-		if rp := a.remoteProvider(sess.Host); rp != nil {
-			if err := rp.Rename(id, newName); err != nil {
-				return fmt.Errorf("remote rename: %w", err)
-			}
+		rp := a.remoteProvider(sess.Host)
+		if rp == nil {
+			return fmt.Errorf("no remote provider for host %q", sess.Host)
+		}
+		if err := rp.Rename(id, newName); err != nil {
+			return fmt.Errorf("remote rename: %w", err)
 		}
 		a.localMgr.Store().UpdateSession(id, func(s *session.Session) {
 			s.Name = newName

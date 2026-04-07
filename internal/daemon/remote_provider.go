@@ -293,7 +293,7 @@ func (rp *RemoteProvider) HistorySize(_ string) (int, error) {
 // LaunchLazygit launches lazygit on the remote host via SSH -t.
 // This bypasses the daemon API entirely.
 func (rp *RemoteProvider) LaunchLazygit(path string) error {
-	remoteCmd := fmt.Sprintf("cd %s && lazygit", posixQuote(path))
+	remoteCmd := fmt.Sprintf("cd %s && lazygit", PosixQuote(path))
 	return rp.runSSHInteractive(remoteCmd)
 }
 
@@ -321,7 +321,7 @@ func buildTmuxAttachCommand(tmuxTarget string) string {
 	return fmt.Sprintf(
 		"tmux -L lazyclaude set-option -t lazyclaude window-size largest 2>/dev/null; "+
 			"tmux -L lazyclaude attach-session -t %s",
-		posixQuote(tmuxTarget),
+		PosixQuote(tmuxTarget),
 	)
 }
 

@@ -47,8 +47,8 @@ func TestPosixQuote(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := posixQuote(tt.input); got != tt.want {
-				t.Errorf("posixQuote(%q) = %q, want %q", tt.input, got, tt.want)
+			if got := PosixQuote(tt.input); got != tt.want {
+				t.Errorf("PosixQuote(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
