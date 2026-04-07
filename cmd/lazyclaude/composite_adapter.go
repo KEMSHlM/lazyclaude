@@ -394,10 +394,49 @@ func (a *guiCompositeAdapter) getWindowActivity() map[string]gui.WindowActivityE
 }
 
 func (a *guiCompositeAdapter) Projects() []gui.ProjectItem {
-	// Use local manager's project grouping and merge remote sessions.
 	projects := a.localMgr.Projects()
 	activity := a.getWindowActivity()
-	return buildProjectItems(projects, a.cachedPending, activity)
+	items := buildProjectItems(projects, a.cachedPending, activity)
+
+	// Merge remote sessions as separate projects.
+	remoteSessions, err := a.cp.Sessions()
+	if err != nil {
+		return items
+	}
+	// Group remote sessions by host+path into projects.
+	type remoteProject struct {
+		host     string
+		path     string
+		sessions []gui.SessionItem
+	}
+	rpMap := make(map[string]*remoteProject)
+	for _, s := range remoteSessions {
+		if s.Host == "" {
+			continue // local session, already in projects
+		}
+		key := s.Host + ":" + s.Path
+		rp, ok := rpMap[key]
+		if !ok {
+			rp = &remoteProject{host: s.Host, path: s.Path}
+			rpMap[key] = rp
+		}
+		rp.sessions = append(rp.sessions, daemonInfoToGUIItem(s, a.cachedPending, activity))
+	}
+	for _, rp := range rpMap {
+		name := rp.path
+		if idx := strings.LastIndex(name, "/"); idx >= 0 && idx < len(name)-1 {
+			name = name[idx+1:]
+		}
+		items = append(items, gui.ProjectItem{
+			ID:       "remote-" + rp.host + "-" + rp.path,
+			Name:     name,
+			Path:     rp.path,
+			Host:     rp.host,
+			Expanded: true,
+			Sessions: rp.sessions,
+		})
+	}
+	return items
 }
 
 func (a *guiCompositeAdapter) ToggleProjectExpanded(projectID string) {
