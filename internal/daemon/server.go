@@ -299,9 +299,10 @@ func (s *DaemonServer) handleWorktreeCreate(w http.ResponseWriter, r *http.Reque
 
 	wtPath := session.WorktreePath(req.ProjectRoot, req.Name)
 	writeJSON(w, http.StatusCreated, WorktreeCreateResponse{
-		SessionID: sess.ID,
-		Path:      wtPath,
-		Branch:    req.Name,
+		SessionID:  sess.ID,
+		Path:       wtPath,
+		Branch:     req.Name,
+		TmuxWindow: sess.WindowName(),
 	})
 }
 
@@ -319,7 +320,11 @@ func (s *DaemonServer) handleWorktreeResume(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	writeJSON(w, http.StatusOK, WorktreeResumeResponse{SessionID: sess.ID})
+	writeJSON(w, http.StatusOK, WorktreeResumeResponse{
+		SessionID:  sess.ID,
+		Name:       sess.Name,
+		TmuxWindow: sess.WindowName(),
+	})
 }
 
 func (s *DaemonServer) handleWorktreeList(w http.ResponseWriter, r *http.Request) {
