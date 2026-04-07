@@ -3,6 +3,15 @@ package gui
 // enterFullScreen enters fullscreen mode for the given session.
 func (a *App) enterFullScreen(sessionID string) {
 	a.fullscreen.Enter(sessionID)
+	// Update the forwarder's session context so it routes to the correct
+	// backend (local tmux vs remote daemon API).
+	if setter, ok := a.fullscreen.forwarder.(SessionContextSetter); ok {
+		host := ""
+		if sess := a.findSessionByID(sessionID); sess != nil {
+			host = sess.Host
+		}
+		setter.SetSessionContext(sessionID, host)
+	}
 	// Rebuild cache in case it hasn't been populated yet (e.g. called before layout).
 	a.refreshTreeNodes()
 	// Ensure cursor points at the session node (for resolveForwardTarget).
@@ -16,8 +25,22 @@ func (a *App) enterFullScreen(sessionID string) {
 	}
 }
 
+// findSessionByID searches the cached tree nodes for a session with the given ID.
+func (a *App) findSessionByID(id string) *SessionItem {
+	for _, node := range a.treeNodes() {
+		if node.Kind == SessionNode && node.Session != nil && node.Session.ID == id {
+			return node.Session
+		}
+	}
+	return nil
+}
+
 // exitFullScreen exits fullscreen mode.
 func (a *App) exitFullScreen() {
+	// Clear session context so stale host values don't route keys incorrectly.
+	if setter, ok := a.fullscreen.forwarder.(SessionContextSetter); ok {
+		setter.SetSessionContext("", "")
+	}
 	a.fullscreen.Exit()
 }
 
