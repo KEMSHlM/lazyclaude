@@ -286,6 +286,7 @@ func (a *guiCompositeAdapter) remoteProvider(host string) *daemon.RemoteProvider
 // so that each mirror has independent window selection. The remote command
 // is base64-encoded to prevent shell injection from user-controlled host strings.
 func (a *guiCompositeAdapter) createMirrorWindow(host, remoteWindow, localWindowName string) error {
+	debugLog("createMirrorWindow: host=%q remoteWindow=%q localWindowName=%q", host, remoteWindow, localWindowName)
 	// Build the remote tmux grouped-session command. Each mirror gets its own
 	// grouped session (named after localWindowName) with destroy-unattached so
 	// the session is cleaned up when the SSH connection drops.
@@ -417,7 +418,7 @@ func (a *guiCompositeAdapter) ensureMirrorForRemoteSession(host, path string, re
 			a.onError(fmt.Sprintf("save store: %v", err))
 		}
 	}
-	debugLog("ensureMirrorForRemoteSession: mirror %q created for remote session %q", mirrorName, resp.ID)
+	debugLog("ensureMirrorForRemoteSession: mirror %q created for session %q path=%q role=%q respPath=%q", mirrorName, resp.ID, sessionPath, resp.Role, resp.Path)
 	a.triggerGUIUpdate()
 	return nil
 }

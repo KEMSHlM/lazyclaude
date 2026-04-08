@@ -461,6 +461,7 @@ func (rp *RemoteProvider) createPMSessionResp(projectRoot string) (*SessionCreat
 	return client.CreateSession(context.Background(), SessionCreateRequest{
 		Path:        projectRoot,
 		SessionType: "pm",
+		ProjectRoot: projectRoot,
 	})
 }
 
@@ -487,6 +488,7 @@ func (rp *RemoteProvider) createWorkerSessionResp(name, prompt, projectRoot stri
 		SessionType: "worker",
 		Name:        name,
 		Prompt:      prompt,
+		ProjectRoot: projectRoot,
 	})
 }
 
