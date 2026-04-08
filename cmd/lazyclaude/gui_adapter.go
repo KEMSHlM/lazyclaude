@@ -192,8 +192,8 @@ func (a *guiCompositeAdapter) createWithHost(path, host string) error {
 	// remote CWD after the connection is established.
 	placeholder := session.Session{
 		ID:        uuid.New().String(),
-		Name:      a.localMgr.Store().GenerateName(host),
-		Path:      host, // Temporary: replaced with remote CWD in completeRemoteCreate
+		Name:      "connecting...",
+		Path:      host, // Temporary: replaced when real session is added
 		Host:      host,
 		Status:    session.StatusRunning,
 		CreatedAt: time.Now(),
@@ -238,28 +238,17 @@ func (a *guiCompositeAdapter) completeRemoteCreate(placeholderID, localPath, hos
 	}
 	debugLog("completeRemoteCreate: CreateSession succeeded id=%q window=%q", resp.ID, resp.TmuxWindow)
 
-	// Create local mirror window.
-	mirrorName := session.MirrorWindowName(resp.ID)
-	if err := a.createMirrorWindow(host, resp.TmuxWindow, mirrorName); err != nil {
-		debugLog("completeRemoteCreate: createMirrorWindow failed: %v", err)
-		a.failPlaceholder(placeholderID, fmt.Sprintf("Mirror window failed: %v", err))
+	// Remove the placeholder and add the real session with correct path.
+	// This ensures the session is grouped under the correct project
+	// (UpdateSession doesn't move between project groups).
+	store := a.localMgr.Store()
+	store.Remove(placeholderID)
+	if err := a.ensureMirrorForRemoteSession(host, remotePath, resp); err != nil {
+		debugLog("completeRemoteCreate: ensureMirrorForRemoteSession failed: %v", err)
+		a.failPlaceholder(placeholderID, fmt.Sprintf("Mirror setup failed: %v", err))
 		return
 	}
-
-	// Update the placeholder in the local store with real session info.
-	store := a.localMgr.Store()
-	store.UpdateSession(placeholderID, func(sess *session.Session) {
-		sess.ID = resp.ID
-		sess.Name = resp.Name
-		sess.Path = remotePath
-		sess.Host = host
-		sess.Status = session.StatusRunning
-		sess.TmuxWindow = mirrorName
-	})
-	if err := store.Save(); err != nil {
-		debugLog("completeRemoteCreate: save store failed: %v", err)
-	}
-	debugLog("completeRemoteCreate: mirror window %q created for remote session %q", mirrorName, resp.ID)
+	debugLog("completeRemoteCreate: session %q created with path=%q", resp.ID, remotePath)
 	a.triggerGUIUpdate()
 }
 
