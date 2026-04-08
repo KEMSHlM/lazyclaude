@@ -236,6 +236,7 @@ func (s *DaemonServer) handleSessionCreate(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, SessionCreateResponse{
 		ID:         sess.ID,
 		Name:       sess.Name,
+		Path:       sess.Path,
 		TmuxWindow: sess.WindowName(),
 		Role:       string(sess.Role),
 	})
@@ -325,6 +326,7 @@ func (s *DaemonServer) handleWorktreeResume(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, WorktreeResumeResponse{
 		SessionID:  sess.ID,
 		Name:       sess.Name,
+		Path:       sess.Path,
 		TmuxWindow: sess.WindowName(),
 		Role:       string(sess.Role),
 	})

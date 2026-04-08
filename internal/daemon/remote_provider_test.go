@@ -330,7 +330,7 @@ func TestRemoteProvider_PostCreateHook_CalledOnCreateWorktree(t *testing.T) {
 
 	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /worktree/create": func(w http.ResponseWriter, _ *http.Request) {
-			testWriteJSON(w, WorktreeCreateResponse{SessionID: "wt1", TmuxWindow: "lc-wt1", Role: "worker"})
+			testWriteJSON(w, WorktreeCreateResponse{SessionID: "wt1", Path: "/project/.lazyclaude/worktrees/feat", TmuxWindow: "lc-wt1", Role: "worker"})
 		},
 	})
 	defer srv.Close()
@@ -354,8 +354,8 @@ func TestRemoteProvider_PostCreateHook_CalledOnCreateWorktree(t *testing.T) {
 	if gotHost != "remote-host" {
 		t.Errorf("hook host=%q, want remote-host", gotHost)
 	}
-	if gotPath != "/project" {
-		t.Errorf("hook path=%q, want /project", gotPath)
+	if gotPath != "/project/.lazyclaude/worktrees/feat" {
+		t.Errorf("hook path=%q, want /project/.lazyclaude/worktrees/feat", gotPath)
 	}
 	if gotResp == nil || gotResp.ID != "wt1" {
 		t.Errorf("hook resp=%v, want ID=wt1", gotResp)
@@ -370,7 +370,7 @@ func TestRemoteProvider_PostCreateHook_CalledOnCreatePMSession(t *testing.T) {
 	var gotResp *SessionCreateResponse
 	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /session/create": func(w http.ResponseWriter, _ *http.Request) {
-			testWriteJSON(w, SessionCreateResponse{ID: "pm1", TmuxWindow: "lc-pm1", Role: "pm"})
+			testWriteJSON(w, SessionCreateResponse{ID: "pm1", Path: "/project", TmuxWindow: "lc-pm1", Role: "pm"})
 		},
 	})
 	defer srv.Close()
@@ -400,7 +400,7 @@ func TestRemoteProvider_PostCreateHook_CalledOnResumeWorktree(t *testing.T) {
 	var gotResp *SessionCreateResponse
 	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /worktree/resume": func(w http.ResponseWriter, _ *http.Request) {
-			testWriteJSON(w, WorktreeResumeResponse{SessionID: "wt-resume", Name: "feat", TmuxWindow: "lc-resume", Role: "worker"})
+			testWriteJSON(w, WorktreeResumeResponse{SessionID: "wt-resume", Name: "feat", Path: "/tmp/wt", TmuxWindow: "lc-resume", Role: "worker"})
 		},
 	})
 	defer srv.Close()
@@ -424,8 +424,8 @@ func TestRemoteProvider_PostCreateHook_CalledOnResumeWorktree(t *testing.T) {
 	if gotHost != "remote-host" {
 		t.Errorf("hook host=%q, want remote-host", gotHost)
 	}
-	if gotPath != "/project" {
-		t.Errorf("hook path=%q, want /project", gotPath)
+	if gotPath != "/tmp/wt" {
+		t.Errorf("hook path=%q, want /tmp/wt", gotPath)
 	}
 	if gotResp != nil && gotResp.Role != "worker" {
 		t.Errorf("hook resp.Role=%q, want worker", gotResp.Role)

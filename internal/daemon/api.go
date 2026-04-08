@@ -28,6 +28,7 @@ type SessionCreateRequest struct {
 type SessionCreateResponse struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
+	Path       string `json:"path,omitempty"`
 	TmuxWindow string `json:"tmux_window"`
 	Role       string `json:"role,omitempty"`
 }
@@ -151,6 +152,7 @@ type WorktreeResumeRequest struct {
 type WorktreeResumeResponse struct {
 	SessionID  string `json:"session_id"`
 	Name       string `json:"name"`
+	Path       string `json:"path,omitempty"`
 	TmuxWindow string `json:"tmux_window"`
 	Role       string `json:"role,omitempty"`
 }

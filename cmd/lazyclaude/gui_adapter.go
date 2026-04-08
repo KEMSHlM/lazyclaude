@@ -392,16 +392,23 @@ func (a *guiCompositeAdapter) ensureMirrorForRemoteSession(host, path string, re
 		return fmt.Errorf("create mirror window: %w", err)
 	}
 
+	// Prefer the path returned by the daemon (accurate project path)
+	// over the locally resolved path (which may be just the remote home).
+	mirrorPath := path
+	if resp.Path != "" {
+		mirrorPath = resp.Path
+	}
+
 	sess := session.Session{
 		ID:         resp.ID,
 		Name:       resp.Name,
-		Path:       path,
+		Path:       mirrorPath,
 		Host:       host,
 		Status:     session.StatusRunning,
 		TmuxWindow: mirrorName,
 		Role:       session.Role(resp.Role),
 	}
-	a.localMgr.Store().Add(sess, path)
+	a.localMgr.Store().Add(sess, mirrorPath)
 	if err := a.localMgr.Store().Save(); err != nil {
 		debugLog("ensureMirrorForRemoteSession: save store failed: %v", err)
 		if a.onError != nil {
