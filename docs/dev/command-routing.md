@@ -40,17 +40,15 @@ completeRemoteCreate
 
 ## N (CreateSessionAtCWD)
 
+N はペインベース: lazyclaude ペインがある場所 (= pendingHost) で
+セッションを作る。カーソルがどのツリーノード上にあるかは参照しない。
+
 ```
 ステップ1: 入力値の決定
 
 path = "."
 
-host = resolveHost()
-├─ カーソルがノード上にある
-│  ├─ ノードの Host != "" → Host (リモート)
-│  └─ ノードの Host == "" → "" (ローカル確定)
-└─ カーソルがノード上にない
-   └─ pendingHost
+host = pendingHost   (ペインベース。resolveHost() は使わない)
 
 
 ステップ2: ルーティング

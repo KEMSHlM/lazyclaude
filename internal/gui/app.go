@@ -51,6 +51,11 @@ type SessionProvider interface {
 	Projects() []ProjectItem
 	ToggleProjectExpanded(projectID string)
 	Create(path string) error
+	// CreateAtPaneCWD creates a session in the TUI pane's CWD. Unlike Create,
+	// this is pane-based (not cursor-based): it always uses pendingHost so the
+	// N key consistently creates a session wherever the lazyclaude pane lives,
+	// regardless of which tree node the cursor happens to be on.
+	CreateAtPaneCWD() error
 	Delete(id string) error
 	Rename(id, newName string) error
 	PurgeOrphans() (int, error)

@@ -13,6 +13,25 @@ import (
 	"github.com/any-context/lazyclaude/internal/session"
 )
 
+// sessionCommander is the subset of SessionCommandService methods invoked by
+// guiCompositeAdapter. Defining the dependency as an interface here lets tests
+// inject a mock to verify routing decisions without standing up a real
+// daemon/CompositeProvider.
+type sessionCommander interface {
+	Create(target OperationTarget) error
+	Delete(id string) error
+	Rename(id, newName string) error
+	LaunchLazygit(target OperationTarget) error
+	CreateWorktree(target OperationTarget, name, prompt string) error
+	ResumeWorktree(target OperationTarget, wtPath, prompt string) error
+	ListWorktrees(target OperationTarget) ([]gui.WorktreeInfo, error)
+	CreatePMSession(target OperationTarget) error
+	CreateWorkerSession(target OperationTarget, name, prompt string) error
+}
+
+// Compile-time check that SessionCommandService satisfies sessionCommander.
+var _ sessionCommander = (*SessionCommandService)(nil)
+
 // guiCompositeAdapter wraps daemon.CompositeProvider to implement gui.SessionProvider.
 // This bridges the daemon's type system (daemon.SessionInfo etc.) to the GUI's
 // type system (gui.SessionItem etc.).
@@ -20,7 +39,7 @@ type guiCompositeAdapter struct {
 	cp       *daemon.CompositeProvider
 	localMgr *session.Manager
 	paths    config.Paths
-	commands *SessionCommandService
+	commands sessionCommander
 
 	// windowActivityFn provides window->activity mapping from the App layer.
 	windowActivityFn func() map[string]gui.WindowActivityEntry
@@ -141,6 +160,18 @@ func (a *guiCompositeAdapter) ToggleProjectExpanded(projectID string) {
 
 func (a *guiCompositeAdapter) Create(path string) error {
 	return a.commands.Create(a.resolveTarget(path))
+}
+
+// CreateAtPaneCWD implements the N key: create a session in the lazyclaude
+// pane's CWD. Host routing is pane-based, so we use pendingHost directly
+// instead of resolveHost(): the cursor's tree node must not influence where
+// a pane-CWD session lands. The resolveRemotePathFn in SessionCommandService
+// translates "." to the remote daemon's CWD when the host is non-empty.
+func (a *guiCompositeAdapter) CreateAtPaneCWD() error {
+	return a.commands.Create(OperationTarget{
+		Host:        a.readPendingHost(),
+		ProjectRoot: ".",
+	})
 }
 
 // resolveRemotePath maps a local path to the remote daemon's CWD when
