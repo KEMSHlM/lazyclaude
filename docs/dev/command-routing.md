@@ -11,8 +11,11 @@ path = currentProjectRoot()
 └─ Focus なし → filepath.Abs(".")
 
 host = resolveHost()
-├─ cachedHost != "" → cachedHost
-└─ pendingHost
+├─ カーソルがノード上にある
+│  ├─ ノードの Host != "" → Host (リモート)
+│  └─ ノードの Host == "" → "" (ローカル確定)
+└─ カーソルがノード上にない
+   └─ pendingHost
 
 
 ステップ2: ルーティング
