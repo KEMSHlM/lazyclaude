@@ -46,8 +46,11 @@ completeRemoteCreate
 path = "."
 
 host = resolveHost()
-├─ cachedHost != "" → cachedHost
-└─ pendingHost
+├─ カーソルがノード上にある
+│  ├─ ノードの Host != "" → Host (リモート)
+│  └─ ノードの Host == "" → "" (ローカル確定)
+└─ カーソルがノード上にない
+   └─ pendingHost
 
 
 ステップ2: ルーティング
@@ -79,8 +82,11 @@ path = currentProjectRoot()
 └─ Focus なし → filepath.Abs(".")
 
 host = resolveHost()
-├─ cachedHost != "" → cachedHost
-└─ pendingHost
+├─ カーソルがノード上にある
+│  ├─ ノードの Host != "" → Host (リモート)
+│  └─ ノードの Host == "" → "" (ローカル確定)
+└─ カーソルがノード上にない
+   └─ pendingHost
 
 name = ダイアログ入力
 prompt = ダイアログ入力

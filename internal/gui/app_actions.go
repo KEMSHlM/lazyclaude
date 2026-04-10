@@ -253,32 +253,36 @@ func (a *App) configDirForSession(s *SessionItem) string {
 
 // --- Host routing ---
 
-// currentSessionHost returns the SSH host for the currently selected tree node.
-// Returns "" for local sessions/projects or when no node is selected.
 // CurrentSessionHost returns the SSH host of the currently selected session
-// or project node. Returns "" for local sessions or when no node is selected.
+// or project node along with a flag indicating whether the cursor is on a node.
+// The host is "" for local sessions/projects, and onNode is false when no node
+// is under the cursor. Callers distinguish "on a local node" (host="", onNode=true)
+// from "no node selected" (host="", onNode=false) so that local-node operations
+// do not fall back to pendingHost.
 // Must be called from the gocui main goroutine (e.g. inside keybinding handlers
 // or Update callbacks) because it reads GUI state (cursor, tree nodes).
-func (a *App) CurrentSessionHost() string {
+func (a *App) CurrentSessionHost() (string, bool) {
 	return a.currentSessionHost()
 }
 
-func (a *App) currentSessionHost() string {
+func (a *App) currentSessionHost() (string, bool) {
 	node := a.currentNode()
 	if node == nil {
-		return ""
+		return "", false
 	}
 	switch node.Kind {
 	case SessionNode:
 		if node.Session != nil {
-			return node.Session.Host
+			return node.Session.Host, true
 		}
 	case ProjectNode:
 		if node.Project != nil {
-			return node.Project.Host
+			return node.Project.Host, true
 		}
 	}
-	return ""
+	// Defensive: a node with a nil payload should not be treated as
+	// "cursor on a local node" — fall through to pendingHost instead.
+	return "", false
 }
 
 // --- Session operations ---

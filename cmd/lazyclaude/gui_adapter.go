@@ -28,9 +28,12 @@ type guiCompositeAdapter struct {
 	// cachedPending is refreshed once per layout cycle.
 	cachedPending map[string]bool
 
-	// currentHostFn returns the SSH host of the currently selected session.
-	// Wired from app.currentSessionHost() in root.go.
-	currentHostFn func() string
+	// currentHostFn returns the SSH host of the currently selected tree node
+	// along with a flag indicating whether the cursor is on a node. The flag
+	// lets resolveHost() distinguish "cursor on a local node" (host="", onNode=true)
+	// from "no node selected" (host="", onNode=false).
+	// Wired from app.CurrentSessionHost() in root.go.
+	currentHostFn func() (string, bool)
 
 	// Lazy remote connection: pendingHost is the default SSH host, initially set
 	// at construction from DetectSSHHost() and updated by SetPendingHost after
@@ -46,11 +49,15 @@ type guiCompositeAdapter struct {
 	onError      func(msg string)
 	lastErrorMsg string
 
-	// cachedHost stores the most recently resolved SSH host from currentHostFn.
-	// Updated on every layout cycle (main goroutine) via Sessions().
-	// Read by resolveHost() from any goroutine.
-	hostCacheMu sync.RWMutex
-	cachedHost  string
+	// cachedHost and cachedOnNode store the most recently resolved host info
+	// from currentHostFn. Updated on every layout cycle (main goroutine) via
+	// Sessions(). Read by resolveHost() from any goroutine.
+	// The zero value (cachedOnNode=false) is intentional: before the first
+	// Sessions() call, resolveHost() must treat the state as "no node under
+	// cursor" and fall back to pendingHost.
+	hostCacheMu  sync.RWMutex
+	cachedHost   string
+	cachedOnNode bool
 }
 
 // Compile-time check.
@@ -74,17 +81,22 @@ func (a *guiCompositeAdapter) readPendingHost() string {
 }
 
 // resolveHost returns the SSH host for the current operation.
-// Prefers the cached host (updated by Sessions() on each layout cycle),
-// falling back to the default pendingHost (set by connect dialog or DetectSSHHost).
 //
-// Thread-safe: reads cachedHost updated by Sessions() each layout cycle.
-// May return stale value between cycles, acceptable because operations
+// Routing rules:
+//   - Cursor on a node: return the node's host verbatim. Host=="" means the
+//     node is local, and the operation must stay local (no pendingHost fallback).
+//   - Cursor not on a node: fall back to pendingHost (set by connect dialog or
+//     DetectSSHHost at startup).
+//
+// Thread-safe: reads cachedHost/cachedOnNode updated by Sessions() each layout
+// cycle. May return a stale value between cycles, acceptable because operations
 // are synchronous on the calling goroutine.
 func (a *guiCompositeAdapter) resolveHost() string {
 	a.hostCacheMu.RLock()
 	h := a.cachedHost
+	onNode := a.cachedOnNode
 	a.hostCacheMu.RUnlock()
-	if h != "" {
+	if onNode {
 		return h
 	}
 	return a.readPendingHost()
@@ -97,9 +109,10 @@ func (a *guiCompositeAdapter) RefreshPendingFrom(notifications []*model.ToolNoti
 func (a *guiCompositeAdapter) Sessions() []gui.SessionItem {
 	// Update cached host on every layout cycle (main goroutine).
 	if a.currentHostFn != nil {
-		h := a.currentHostFn()
+		h, onNode := a.currentHostFn()
 		a.hostCacheMu.Lock()
 		a.cachedHost = h
+		a.cachedOnNode = onNode
 		a.hostCacheMu.Unlock()
 	}
 
