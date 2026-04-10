@@ -158,7 +158,7 @@ func (m *MirrorManager) createMirrorWindow(host, remoteWindow, localWindowName s
 	if port != "" {
 		sshArgs += " -p " + port
 	}
-	sshArgs += " " + sshHost
+	sshArgs += " " + shell.Quote(sshHost)
 	command := fmt.Sprintf("exec %s eval \"$(echo %s | base64 -d)\"", sshArgs, encoded)
 
 	abs, err := filepath.Abs(".")
