@@ -17,7 +17,7 @@ n
    └─ host != ""
       └─ completeRemoteCreate (goroutine)
          ├─ ensureConnected(host)
-         ├─ resolveRemotePath(path, host) → 常に queryRemoteCWD で上書き ✗
+         ├─ resolveRemotePath(path, host) → queryRemoteCWD
          ├─ remoteAPI.Create(remotePath)
          └─ mirrorMgr.CreateMirror
 ```
@@ -45,7 +45,7 @@ w → ダイアログ → Enter
 └─ commands.CreateWorktree({host, path}, name, prompt)
    └─ prepareRemote(&target)
       ├─ ensureConnected(host)
-      └─ resolveRemotePath(path, host) → 常に queryRemoteCWD で上書き ✗
+      └─ resolveRemotePath(path, host) → queryRemoteCWD
    └─ cp.CreateWorktree(name, prompt, path, host)
 ```
 
@@ -56,7 +56,7 @@ W
 └─ path = currentProjectRoot()
 └─ host = resolveHost()
 └─ commands.ListWorktrees({host, path})
-   └─ prepareRemote(&target) → 同上 ✗
+   └─ prepareRemote(&target)
    └─ cp.ListWorktrees(path, host)
 ```
 
@@ -67,7 +67,7 @@ P
 └─ path = currentProjectRoot()
 └─ host = resolveHost()
 └─ commands.CreatePMSession({host, path})
-   └─ prepareRemote(&target) → 同上 ✗
+   └─ prepareRemote(&target)
    └─ cp.CreatePMSession(path, host)
 ```
 
@@ -80,7 +80,7 @@ d
    ├─ sess.Host == ""
    │  └─ cp.Delete(id)
    └─ sess.Host != ""
-      ├─ rp.Delete(id) (best-effort)
+      ├─ rp.Delete(id)
       └─ mirrorMgr.DeleteMirror(id)
 ```
 
@@ -104,7 +104,7 @@ g
 └─ path = currentProjectRoot()
 └─ host = resolveHost()
 └─ commands.LaunchLazygit({host, path})
-   └─ prepareRemote(&target) → 同上 ✗
+   └─ prepareRemote(&target)
    └─ cp.LaunchLazygit(path, host)
 ```
 
@@ -121,6 +121,6 @@ a
 ```
 Enter
 └─ id = currentSession().ID
-└─ capture-pane(mirror window) → gocui 描画
-└─ send-keys(mirror window) → SSH 経由転送
+└─ capture-pane(mirror window)
+└─ send-keys(mirror window)
 ```
