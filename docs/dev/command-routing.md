@@ -3,127 +3,207 @@
 ## n (CreateSession)
 
 ```
-n
-├─ path = currentProjectRoot()
-│  ├─ Focus on ProjectNode → project.Path
-│  ├─ Focus on SessionNode → 親プロジェクトの Path
-│  └─ Focus なし → filepath.Abs(".")
-├─ host = resolveHost()
-│  ├─ cachedHost != "" → cachedHost
-│  └─ pendingHost
-└─ commands.Create({host, path})
-   ├─ host == ""
-   │  └─ cp.Create(path, "")
-   └─ host != ""
-      └─ completeRemoteCreate (goroutine)
-         ├─ ensureConnected(host)
-         ├─ resolveRemotePath(path, host) → queryRemoteCWD
-         ├─ remoteAPI.Create(remotePath)
-         └─ mirrorMgr.CreateMirror
+ステップ1: 入力値の決定
+
+path = currentProjectRoot()
+├─ Focus on ProjectNode → project.Path
+├─ Focus on SessionNode → 親プロジェクトの Path
+└─ Focus なし → filepath.Abs(".")
+
+host = resolveHost()
+├─ cachedHost != "" → cachedHost
+└─ pendingHost
+
+
+ステップ2: ルーティング
+
+commands.Create({host, path})
+├─ host == ""
+│  └─ cp.Create(path, "")
+└─ host != ""
+   └─ completeRemoteCreate (goroutine)
+
+
+ステップ3: リモート実行 (host != "" の場合)
+
+completeRemoteCreate
+├─ ensureConnected(host)
+├─ resolveRemotePath(path, host) → queryRemoteCWD
+├─ remoteAPI.Create(remotePath)
+└─ mirrorMgr.CreateMirror
 ```
 
 ## N (CreateSessionAtCWD)
 
 ```
-N
-├─ path = "."
-├─ host = resolveHost()
-└─ commands.Create({host, "."})
-   ├─ host == ""
-   │  └─ cp.Create(".", "")
-   └─ host != ""
-      └─ completeRemoteCreate
-         └─ resolveRemotePath(".", host) → queryRemoteCWD
+ステップ1: 入力値の決定
+
+path = "."
+
+host = resolveHost()
+├─ cachedHost != "" → cachedHost
+└─ pendingHost
+
+
+ステップ2: ルーティング
+
+commands.Create({host, "."})
+├─ host == ""
+│  └─ cp.Create(".", "")
+└─ host != ""
+   └─ completeRemoteCreate (goroutine)
+
+
+ステップ3: リモート実行 (host != "" の場合)
+
+completeRemoteCreate
+├─ ensureConnected(host)
+├─ resolveRemotePath(".", host) → queryRemoteCWD
+├─ remoteAPI.Create(remotePath)
+└─ mirrorMgr.CreateMirror
 ```
 
 ## w (CreateWorktree)
 
 ```
-w → ダイアログ → Enter
-├─ path = currentProjectRoot()
-├─ host = resolveHost()
-├─ name = ダイアログ入力
-├─ prompt = ダイアログ入力
-└─ commands.CreateWorktree({host, path}, name, prompt)
-   ├─ prepareRemote(&target)
-   │  ├─ ensureConnected(host)
-   │  └─ resolveRemotePath(path, host) → queryRemoteCWD
-   └─ cp.CreateWorktree(name, prompt, path, host)
+ステップ1: 入力値の決定
+
+path = currentProjectRoot()
+├─ Focus on ProjectNode → project.Path
+├─ Focus on SessionNode → 親プロジェクトの Path
+└─ Focus なし → filepath.Abs(".")
+
+host = resolveHost()
+├─ cachedHost != "" → cachedHost
+└─ pendingHost
+
+name = ダイアログ入力
+prompt = ダイアログ入力
+
+
+ステップ2: ルーティング
+
+commands.CreateWorktree({host, path}, name, prompt)
+├─ prepareRemote(&target)
+│  ├─ ensureConnected(host)
+│  └─ resolveRemotePath(path, host) → queryRemoteCWD
+└─ cp.CreateWorktree(name, prompt, path, host)
 ```
 
 ## W (SelectWorktree)
 
 ```
-W
-├─ path = currentProjectRoot()
-├─ host = resolveHost()
-└─ commands.ListWorktrees({host, path})
-   ├─ prepareRemote(&target)
-   └─ cp.ListWorktrees(path, host)
+ステップ1: 入力値の決定
+
+path = currentProjectRoot()
+host = resolveHost()
+
+
+ステップ2: ルーティング
+
+commands.ListWorktrees({host, path})
+├─ prepareRemote(&target)
+│  ├─ ensureConnected(host)
+│  └─ resolveRemotePath(path, host) → queryRemoteCWD
+└─ cp.ListWorktrees(path, host)
 ```
 
 ## P (CreatePMSession)
 
 ```
-P
-├─ path = currentProjectRoot()
-├─ host = resolveHost()
-└─ commands.CreatePMSession({host, path})
-   ├─ prepareRemote(&target)
-   └─ cp.CreatePMSession(path, host)
+ステップ1: 入力値の決定
+
+path = currentProjectRoot()
+host = resolveHost()
+
+
+ステップ2: ルーティング
+
+commands.CreatePMSession({host, path})
+├─ prepareRemote(&target)
+│  ├─ ensureConnected(host)
+│  └─ resolveRemotePath(path, host) → queryRemoteCWD
+└─ cp.CreatePMSession(path, host)
 ```
 
 ## d (Delete)
 
 ```
-d
-├─ id = currentSession().ID
-└─ commands.Delete(id)
-   ├─ sess.Host == ""
-   │  └─ cp.Delete(id)
-   └─ sess.Host != ""
-      ├─ rp.Delete(id)
-      └─ mirrorMgr.DeleteMirror(id)
+ステップ1: 入力値の決定
+
+id = currentSession().ID
+
+
+ステップ2: ルーティング
+
+commands.Delete(id)
+├─ sess.Host == ""
+│  └─ cp.Delete(id)
+└─ sess.Host != ""
+   ├─ rp.Delete(id)
+   └─ mirrorMgr.DeleteMirror(id)
 ```
 
 ## R (Rename)
 
 ```
-R → ダイアログ → Enter
-├─ id = currentSession().ID
-├─ newName = ダイアログ入力
-└─ commands.Rename(id, newName)
-   ├─ sess.Host == ""
-   │  └─ cp.Rename(id, newName)
-   └─ sess.Host != ""
-      ├─ rp.Rename(id, newName)
-      └─ store.UpdateSession + Save
+ステップ1: 入力値の決定
+
+id = currentSession().ID
+newName = ダイアログ入力
+
+
+ステップ2: ルーティング
+
+commands.Rename(id, newName)
+├─ sess.Host == ""
+│  └─ cp.Rename(id, newName)
+└─ sess.Host != ""
+   ├─ rp.Rename(id, newName)
+   └─ store.UpdateSession + Save
 ```
 
 ## g (LaunchLazygit)
 
 ```
-g
-├─ path = currentProjectRoot()
-├─ host = resolveHost()
-└─ commands.LaunchLazygit({host, path})
-   ├─ prepareRemote(&target)
-   └─ cp.LaunchLazygit(path, host)
+ステップ1: 入力値の決定
+
+path = currentProjectRoot()
+host = resolveHost()
+
+
+ステップ2: ルーティング
+
+commands.LaunchLazygit({host, path})
+├─ prepareRemote(&target)
+│  ├─ ensureConnected(host)
+│  └─ resolveRemotePath(path, host) → queryRemoteCWD
+└─ cp.LaunchLazygit(path, host)
 ```
 
 ## a (Attach)
 
 ```
-a
-├─ id = currentSession().ID
-└─ cp.AttachSession(id)
+ステップ1: 入力値の決定
+
+id = currentSession().ID
+
+
+ステップ2: 実行
+
+cp.AttachSession(id)
 ```
 
 ## Enter (Fullscreen)
 
 ```
-Enter
-├─ id = currentSession().ID
-├─ capture-pane(mirror window)
-└─ send-keys(mirror window)
+ステップ1: 入力値の決定
+
+id = currentSession().ID
+
+
+ステップ2: 実行
+
+capture-pane(mirror window)
+send-keys(mirror window)
 ```
