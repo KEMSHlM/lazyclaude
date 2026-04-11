@@ -181,18 +181,40 @@ func (a *App) syncPluginProject() {
 
 	node := a.currentNode()
 	if node == nil {
-		// Recover from "closed the last remote session" ONLY when the
-		// underlying tree is truly empty. currentNode() also returns nil
-		// when the sessions-panel search filter excludes every row, or
-		// when the cursor is briefly out of range after a tree rebuild;
-		// in those transient cases the logical selection is unchanged,
-		// so preserving remoteDisabled keeps subsequent write guards
-		// honest. Only a genuinely empty cachedNodes means there is no
-		// remote session to "return from" — that is the real recovery
-		// path the plan calls out.
+		// Recovery path — only when the underlying tree is genuinely
+		// empty (not a transient filter-hides-everything or cursor-
+		// out-of-range state). Reset the providers to the CWD fallback
+		// so a cached pluginState.projectDir from an earlier local
+		// selection cannot bleed through into subsequent writes.
+		// Without this reset, the flow (local A → remote B → tree
+		// empties out-of-band) would leave pluginState.projectDir at
+		// "A" and the next plugin/MCP write would mutate an unrelated
+		// local repo. See codex P1 on commit a25ed88 for the scenario.
+		//
+		// Idempotent by the projectDir-equals-CWD short-circuit: once
+		// the reset has run the first time, subsequent layout passes
+		// observe projectDir == cwd and skip the re-spawn.
 		if len(a.cachedNodes) == 0 {
-			clearRemoteDisabled()
+			cwd, _ := filepath.Abs(".")
+			if a.pluginState.projectDir != cwd {
+				clearRemoteDisabled()
+				a.pluginState.projectDir = cwd
+				a.plugins.SetProjectDir(cwd)
+				a.runPluginAsync(func(ctx context.Context) error {
+					return a.plugins.Refresh(ctx)
+				})
+				if a.mcpServers != nil {
+					a.mcpServers.SetProjectDir(cwd)
+					a.runMCPAsync(func(ctx context.Context) error {
+						return a.mcpServers.Refresh(ctx)
+					})
+				}
+			}
 		}
+		// Transient nil-node (filter hides everything, cursor out of
+		// range): preserve the previous flag and projectDir so the
+		// logical selection is intact. The write guards' flag fallback
+		// keeps writes honest until the tree resolves.
 		return
 	}
 

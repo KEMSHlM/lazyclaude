@@ -316,25 +316,74 @@ func TestSyncPluginProject_RemoteThenLocal_ResetsFlag(t *testing.T) {
 	assert.False(t, app.mcpState.remoteDisabled, "mcp remoteDisabled must reset on remote->local")
 }
 
-func TestSyncPluginProject_RemoteThenNoNode_ResetsFlag(t *testing.T) {
-	// Recovery path: closing the last remote session can leave the tree
-	// empty, meaning currentNode() returns nil. The flag must clear so
-	// the panels leave the placeholder state.
-	app, _, _ := newRemoteDisabledApp(t)
+func TestSyncPluginProject_TreeEmptiesAfterLocal_ResetsToCWD(t *testing.T) {
+	// Regression for codex P1 on a25ed88: after selecting local A,
+	// moving to remote, then an out-of-band tree rebuild emptying the
+	// tree, the recovery path must reset pluginState.projectDir to
+	// the CWD fallback instead of leaving it pointing at A. Otherwise
+	// a plugin/MCP write after the tree empties would mutate A.
+	app, mp, mm := newRemoteDisabledApp(t)
 	attachProjectsAndRefresh(app, remoteAndLocalProjects())
 
+	// Select local A first (establishes projectDir=/tmp/local).
+	app.cursor = 0
+	app.syncPluginProject()
+	require.Equal(t, "/tmp/local", app.pluginState.projectDir)
+	// Drain the refresh-on-select baseline so subsequent asserts
+	// only see calls made by the recovery path.
+	waitFor(t, func() bool { return mp.refreshCountSnapshot() >= 1 }, "baseline plugin refresh")
+	waitFor(t, func() bool { return mm.refreshCountSnapshot() >= 1 }, "baseline mcp refresh")
+
+	// Move to remote (flag flips, projectDir untouched).
 	app.cursor = 2
 	app.syncPluginProject()
 	require.True(t, app.pluginState.remoteDisabled)
+	require.Equal(t, "/tmp/local", app.pluginState.projectDir,
+		"precondition: projectDir unchanged by remote selection")
 
-	// Drop all projects and rebuild the tree — cursor now points past end.
+	// Simulate out-of-band tree empty (background GC).
 	attachProjectsAndRefresh(app, nil)
 	app.cursor = 0
-	require.Nil(t, app.currentNode(), "currentNode must be nil after projects drained")
+	require.Nil(t, app.currentNode())
+	require.Empty(t, app.cachedNodes)
 
 	app.syncPluginProject()
-	assert.False(t, app.pluginState.remoteDisabled, "plugin remoteDisabled must clear when no node")
-	assert.False(t, app.mcpState.remoteDisabled, "mcp remoteDisabled must clear when no node")
+
+	// Flag cleared AND projectDir is reset to something other than
+	// the old local path. Use NotEqual rather than matching an
+	// absolute path because filepath.Abs(".") is environment-dependent.
+	assert.False(t, app.pluginState.remoteDisabled,
+		"empty-tree recovery must clear remoteDisabled")
+	assert.False(t, app.mcpState.remoteDisabled)
+	assert.NotEqual(t, "/tmp/local", app.pluginState.projectDir,
+		"empty-tree recovery must not leave projectDir pointing at the last local project")
+	assert.NotEmpty(t, app.pluginState.projectDir,
+		"empty-tree recovery must set projectDir to the CWD fallback")
+}
+
+func TestSyncPluginProject_EmptyTreeReset_IsIdempotent(t *testing.T) {
+	// The empty-tree recovery is triggered from the layout loop, so
+	// it must be idempotent — otherwise it would spawn Refresh on
+	// every frame. Once projectDir matches the CWD fallback the
+	// subsequent calls must be no-ops at the provider level.
+	app, mp, mm := newRemoteDisabledApp(t)
+	attachProjectsAndRefresh(app, nil)
+
+	// First call: triggers the reset and one Refresh each.
+	app.syncPluginProject()
+	waitFor(t, func() bool { return mp.refreshCountSnapshot() >= 1 }, "first refresh")
+	waitFor(t, func() bool { return mm.refreshCountSnapshot() >= 1 }, "first refresh")
+	firstPlugin := mp.refreshCountSnapshot()
+	firstMCP := mm.refreshCountSnapshot()
+
+	// Subsequent calls on the same empty tree must NOT spawn more.
+	for i := 0; i < 5; i++ {
+		app.syncPluginProject()
+	}
+	assert.Equal(t, firstPlugin, mp.refreshCountSnapshot(),
+		"plugin refresh must not re-spawn on repeated empty-tree sync")
+	assert.Equal(t, firstMCP, mm.refreshCountSnapshot(),
+		"mcp refresh must not re-spawn on repeated empty-tree sync")
 }
 
 func TestSyncPluginProject_FilterHidesRemote_FlagPreserved(t *testing.T) {
