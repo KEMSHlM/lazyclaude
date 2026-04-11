@@ -29,8 +29,14 @@ func WithPostCreate(hook PostCreateHook) RemoteProviderOption {
 }
 
 // SSEActivityCallback is called when an SSE activity event is received.
-// The window name is the REMOTE window (lc-xxxx); callers must remap to rm-xxxx.
-type SSEActivityCallback func(ev model.Event)
+//
+// The event carries a best-effort Window (the remapped mirror name
+// "rm-xxxx"), but the sessionID is the authoritative key: callers should
+// use it to look up the corresponding local mirror session and overwrite
+// Window with the mirror's current local tmux window ID ("@42"). This
+// keeps the broker's activity key space aligned with the sidebar lookup
+// (which keys by Session.TmuxWindow = local tmux window ID).
+type SSEActivityCallback func(ev model.Event, sessionID string)
 
 // WithSSEActivity sets the callback for SSE activity events.
 // Used to forward remote activity to the local broker for sidebar display.
@@ -167,12 +173,15 @@ func (rp *RemoteProvider) handleSSEEvent(ev NotificationEvent) {
 				rp.sessions[i].ToolName = ev.ToolName
 				// Forward to local broker for sidebar display.
 				if rp.onSSEActivity != nil {
+					// Window is a best-effort mirror name; the callback
+					// in root.go resolves the authoritative local tmux
+					// window ID using sessionID as a lookup hop.
 					mirrorWindow := remapRemoteWindow(rp.sessions[i].TmuxWindow)
 					rp.onSSEActivity(model.Event{ActivityNotification: &model.ActivityNotification{
 						Window:   mirrorWindow,
 						State:    ev.Activity,
 						ToolName: ev.ToolName,
-					}})
+					}}, rp.sessions[i].ID)
 				}
 				break
 			}
