@@ -181,10 +181,18 @@ func (a *App) syncPluginProject() {
 
 	node := a.currentNode()
 	if node == nil {
-		// No selection: treat as "back to local defaults". Without this
-		// reset, closing the last remote session leaves the panels stuck
-		// rendering the placeholder forever.
-		clearRemoteDisabled()
+		// Recover from "closed the last remote session" ONLY when the
+		// underlying tree is truly empty. currentNode() also returns nil
+		// when the sessions-panel search filter excludes every row, or
+		// when the cursor is briefly out of range after a tree rebuild;
+		// in those transient cases the logical selection is unchanged,
+		// so preserving remoteDisabled keeps subsequent write guards
+		// honest. Only a genuinely empty cachedNodes means there is no
+		// remote session to "return from" — that is the real recovery
+		// path the plan calls out.
+		if len(a.cachedNodes) == 0 {
+			clearRemoteDisabled()
+		}
 		return
 	}
 
@@ -249,6 +257,19 @@ func (a *App) isRemoteNodeSelected() (string, bool) {
 // remote node, showing a status message. Returns true if the caller should
 // return early.
 //
+// Two independent signals are consulted:
+//  1. isRemoteNodeSelected() — the current cursor actually resolves to a
+//     remote session/project.
+//  2. pluginState.remoteDisabled / mcpState.remoteDisabled — the cached
+//     panel flag, set by syncPluginProject the last time the cursor moved
+//     on to a remote node.
+//
+// The flag fallback covers the edge case where currentNode() returns nil
+// transiently (e.g. the sessions-panel search filter hides every row, or
+// a tree refresh left the cursor briefly out of range). Without it, a
+// write key pressed during that window would bypass the guard and run
+// against the preserved local provider state.
+//
 // The caller sites (PluginInstall, PluginRefresh, MCPToggleDenied, ...)
 // are AppActions methods invoked by the keydispatch layer and do not
 // receive a *gocui.Gui. setStatus requires a gui to find the status
@@ -257,8 +278,12 @@ func (a *App) isRemoteNodeSelected() (string, bool) {
 // writes and is consistent with the plan-mandated wrapper shape.
 func (a *App) guardRemoteOp(feature string) bool {
 	host, isRemote := a.isRemoteNodeSelected()
-	if !isRemote {
+	flagSet := a.pluginState.remoteDisabled || a.mcpState.remoteDisabled
+	if !isRemote && !flagSet {
 		return false
+	}
+	if host == "" {
+		host = "remote"
 	}
 	msg := fmt.Sprintf("%s on remote (%s) is not supported yet", feature, host)
 	a.gui.Update(func(g *gocui.Gui) error {

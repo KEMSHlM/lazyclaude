@@ -71,14 +71,19 @@ func (a *App) renderPluginPanel(v *gocui.View, maxWidth int) {
 // a circular dispatch. Do not add an (a *App) receiver unless new state is
 // actually required.
 //
-// The helper resets the view cursor to (0, 0) so any prior scroll state
-// from the previous project does not bleed through. It never invokes
-// scrollToCursor because the placeholder has no "items" to navigate.
+// The helper resets BOTH the view cursor and the view origin to (0, 0).
+// Origin reset is the critical bit — without it, a previously-scrolled
+// plugin/MCP list keeps the old y-offset and the placeholder ends up
+// rendered off-screen or partly clipped. Cursor reset is a follow-up so
+// the invisible selection marker does not stick to a stale row. The
+// helper never invokes scrollToCursor because the placeholder has no
+// "items" to navigate.
 func renderRemoteDisabledPlaceholder(v *gocui.View, msg string) {
 	fmt.Fprintln(v, "")
 	for _, line := range strings.Split(msg, "\n") {
 		fmt.Fprintln(v, "  "+presentation.Dim+line+presentation.Reset)
 	}
+	v.SetOrigin(0, 0)
 	v.SetCursor(0, 0)
 }
 

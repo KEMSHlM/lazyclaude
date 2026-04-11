@@ -337,6 +337,64 @@ func TestSyncPluginProject_RemoteThenNoNode_ResetsFlag(t *testing.T) {
 	assert.False(t, app.mcpState.remoteDisabled, "mcp remoteDisabled must clear when no node")
 }
 
+func TestSyncPluginProject_FilterHidesRemote_FlagPreserved(t *testing.T) {
+	// Edge case surfaced by codex review: an active sessions-panel
+	// search filter can make currentNode() return nil even though the
+	// underlying tree still contains a remote node. In that transient
+	// state the remoteDisabled flag must NOT clear — otherwise the next
+	// write handler falls through the guard and runs against the
+	// preserved local provider state.
+	app, _, _ := newRemoteDisabledApp(t)
+	attachProjectsAndRefresh(app, remoteAndLocalProjects())
+
+	// Put the cursor on the remote node first so the flag is legitimately set.
+	app.cursor = 2
+	app.syncPluginProject()
+	require.True(t, app.pluginState.remoteDisabled)
+	require.True(t, app.mcpState.remoteDisabled)
+
+	// Simulate filter yielding zero rows: keep cachedNodes non-empty
+	// but force currentNode() to return nil by parking the cursor out
+	// of range (the real code does this via filteredTreeNodes when the
+	// search query matches nothing).
+	originalNodes := len(app.cachedNodes)
+	require.Greater(t, originalNodes, 0, "precondition: cachedNodes must be non-empty")
+	app.cursor = originalNodes + 10
+	require.Nil(t, app.currentNode(), "cursor out of range must produce nil node")
+
+	app.syncPluginProject()
+
+	assert.True(t, app.pluginState.remoteDisabled,
+		"plugin remoteDisabled must survive transient nil-node (filter edge case)")
+	assert.True(t, app.mcpState.remoteDisabled,
+		"mcp remoteDisabled must survive transient nil-node (filter edge case)")
+}
+
+func TestGuardRemoteOp_FlagSetButNoNode_StillGuards(t *testing.T) {
+	// Defence in depth: even if syncPluginProject somehow left the
+	// remoteDisabled flag set and the cursor then landed on nil, the
+	// write guard must still return true so mutate-local-by-accident
+	// cannot slip through.
+	app, _, _ := newRemoteDisabledApp(t)
+	app.pluginState.remoteDisabled = true
+	require.Nil(t, app.currentNode())
+
+	assert.True(t, app.guardRemoteOp("Plugin editing"),
+		"flag-only state must keep the guard effective")
+}
+
+func TestGuardRemoteOp_AllClear_ReturnsFalse(t *testing.T) {
+	// Regression sanity check: the flag fallback must not cause the
+	// guard to false-positive when everything is local.
+	app, _, _ := newRemoteDisabledApp(t)
+	attachProjectsAndRefresh(app, remoteAndLocalProjects())
+	app.cursor = 0 // local project
+	require.NotNil(t, app.currentNode())
+
+	assert.False(t, app.guardRemoteOp("Plugin editing"),
+		"local cursor with cleared flag must not trigger the guard")
+}
+
 func TestSyncPluginProject_InitialNoNode_FlagStaysFalse(t *testing.T) {
 	app, _, _ := newRemoteDisabledApp(t)
 	// No session provider attached — currentNode() returns nil.
@@ -508,6 +566,28 @@ func TestRenderPluginPanel_MCPTab_DispatchesToMCPRenderer(t *testing.T) {
 	buf := stripANSI(v.Buffer())
 	assert.NotContains(t, buf, "Plugin editing on remote hosts is not supported",
 		"MCP tab must not surface the plugin-flavoured placeholder")
+}
+
+func TestRenderRemoteDisabledPlaceholder_ResetsOrigin(t *testing.T) {
+	// Codex P3 finding: the placeholder was not resetting v.SetOrigin.
+	// If the plugin/MCP list was previously scrolled (origin y > 0),
+	// the new placeholder would render off-screen. Simulate the scrolled
+	// state, render, then assert the origin is back at (0, 0).
+	app, _, _ := newRemoteDisabledApp(t)
+	v := makeTestView(app, "origin-reset")
+
+	// Park the view on a non-zero origin to simulate "user had scrolled
+	// down through a long plugin list before switching to remote".
+	v.SetOrigin(0, 5)
+	v.SetCursor(0, 5)
+	_, oy := v.Origin()
+	require.Equal(t, 5, oy, "precondition: origin must be non-zero before render")
+
+	renderRemoteDisabledPlaceholder(v, "remote disabled")
+
+	ox, oy := v.Origin()
+	assert.Equal(t, 0, ox, "placeholder must reset origin x")
+	assert.Equal(t, 0, oy, "placeholder must reset origin y so text is visible")
 }
 
 func TestRenderMCPList_RemoteDisabled_ShowsPlaceholder(t *testing.T) {
