@@ -128,15 +128,26 @@ func (a *App) syncPluginProjectOnce() {
 	}
 
 	// Try session tree first (preferred: project-scoped context).
+	// syncPluginProject handles both local and remote nodes: for remote
+	// it sets pluginState.remoteDisabled without touching projectDir,
+	// for local it sets projectDir and triggers the async refresh.
+	// Either signal is enough to short-circuit before the CWD fallback.
 	node := a.currentNode()
 	if node != nil {
 		a.syncPluginProject()
-		if a.pluginState.projectDir != "" {
+		if a.pluginState.projectDir != "" || a.pluginState.remoteDisabled {
 			return
 		}
 	}
 
 	// Fallback: no sessions yet — use process CWD so plugins load immediately.
+	// Explicitly clear remoteDisabled: we are going to refresh against local
+	// data, so the panels must leave any prior "remote disabled" state even
+	// if the caller had a remote node selected before landing here.
+	a.pluginState.remoteDisabled = false
+	if a.mcpServers != nil {
+		a.mcpState.remoteDisabled = false
+	}
 	a.runPluginAsync(func(ctx context.Context) error {
 		return a.plugins.Refresh(ctx)
 	})
@@ -156,10 +167,46 @@ func (a *App) syncPluginProject() {
 	if a.plugins == nil {
 		return
 	}
+
+	// clearRemoteDisabled resets both remoteDisabled flags. Used by the
+	// local-node branch AND the no-node early return so the panels do not
+	// stay stuck in "remote disabled" state after a remote session is
+	// closed and there is no node to drive the local branch.
+	clearRemoteDisabled := func() {
+		a.pluginState.remoteDisabled = false
+		if a.mcpServers != nil {
+			a.mcpState.remoteDisabled = false
+		}
+	}
+
 	node := a.currentNode()
 	if node == nil {
+		// No selection: treat as "back to local defaults". Without this
+		// reset, closing the last remote session leaves the panels stuck
+		// rendering the placeholder forever.
+		clearRemoteDisabled()
 		return
 	}
+
+	// Remote node: mark panels as disabled without touching provider state.
+	// We intentionally do NOT clear pluginState.projectDir or call
+	// SetProjectDir("") here:
+	//   - Clearing projectDir re-triggers syncPluginProjectOnce fallback
+	//     which runs Refresh against the process CWD.
+	//   - SetProjectDir("") makes plugin.ExecCLI run in the process CWD.
+	// Instead, flip remoteDisabled so the render layer shows a placeholder
+	// and write entry points bail out with a status message.
+	if _, isRemote := a.isRemoteNodeSelected(); isRemote {
+		a.pluginState.remoteDisabled = true
+		if a.mcpServers != nil {
+			a.mcpState.remoteDisabled = true
+		}
+		return
+	}
+
+	// Local node: clear the remote flag and proceed with the existing refresh.
+	clearRemoteDisabled()
+
 	var projectPath string
 	if node.Kind == ProjectNode && node.Project != nil {
 		projectPath = node.Project.Path
@@ -184,6 +231,41 @@ func (a *App) syncPluginProject() {
 			return a.mcpServers.Refresh(ctx)
 		})
 	}
+}
+
+// isRemoteNodeSelected reports whether the cursor is on a remote (SSH) node.
+// Returns (host, true) when the cursor is on a remote session/project,
+// ("", false) otherwise. Wraps currentSessionHost() so callers do not need
+// to interpret its (host, onNode) return shape.
+func (a *App) isRemoteNodeSelected() (string, bool) {
+	host, onNode := a.currentSessionHost()
+	if !onNode || host == "" {
+		return "", false
+	}
+	return host, true
+}
+
+// guardRemoteOp short-circuits a write handler when the cursor is on a
+// remote node, showing a status message. Returns true if the caller should
+// return early.
+//
+// The caller sites (PluginInstall, PluginRefresh, MCPToggleDenied, ...)
+// are AppActions methods invoked by the keydispatch layer and do not
+// receive a *gocui.Gui. setStatus requires a gui to find the status
+// view, so we re-enter the main goroutine via gui.Update. This is the
+// same pattern runPluginAsync / runMCPAsync use for their own status
+// writes and is consistent with the plan-mandated wrapper shape.
+func (a *App) guardRemoteOp(feature string) bool {
+	host, isRemote := a.isRemoteNodeSelected()
+	if !isRemote {
+		return false
+	}
+	msg := fmt.Sprintf("%s on remote (%s) is not supported yet", feature, host)
+	a.gui.Update(func(g *gocui.Gui) error {
+		a.setStatus(g, msg)
+		return nil
+	})
+	return true
 }
 
 // --- Path helpers ---
@@ -701,6 +783,9 @@ func (a *App) PluginCursorUp() {
 }
 
 func (a *App) PluginInstall() {
+	if a.guardRemoteOp("Plugin editing") {
+		return
+	}
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabMarketplace {
 		return
 	}
@@ -715,6 +800,9 @@ func (a *App) PluginInstall() {
 }
 
 func (a *App) PluginUninstall() {
+	if a.guardRemoteOp("Plugin editing") {
+		return
+	}
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabPlugins {
 		return
 	}
@@ -736,6 +824,9 @@ func (a *App) PluginUninstall() {
 }
 
 func (a *App) PluginToggleEnabled() {
+	if a.guardRemoteOp("Plugin editing") {
+		return
+	}
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabPlugins {
 		return
 	}
@@ -750,6 +841,9 @@ func (a *App) PluginToggleEnabled() {
 }
 
 func (a *App) PluginUpdate() {
+	if a.guardRemoteOp("Plugin editing") {
+		return
+	}
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabPlugins {
 		return
 	}
@@ -764,6 +858,9 @@ func (a *App) PluginUpdate() {
 }
 
 func (a *App) PluginRefresh() {
+	if a.guardRemoteOp("Plugin editing") {
+		return
+	}
 	if a.plugins == nil {
 		return
 	}
@@ -819,6 +916,9 @@ func (a *App) MCPCursorUp() {
 }
 
 func (a *App) MCPToggleDenied() {
+	if a.guardRemoteOp("MCP editing") {
+		return
+	}
 	if a.mcpServers == nil || a.pluginState.tabIdx != keymap.PluginTabMCP {
 		return
 	}
@@ -833,6 +933,9 @@ func (a *App) MCPToggleDenied() {
 }
 
 func (a *App) MCPRefresh() {
+	if a.guardRemoteOp("MCP editing") {
+		return
+	}
 	if a.mcpServers == nil {
 		return
 	}
