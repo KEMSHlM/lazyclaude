@@ -94,6 +94,39 @@ func TestResolveActivityWindow_SessionNotFound(t *testing.T) {
 	}
 }
 
+// TestResolveActivityWindow_TransitionalMirrorName documents behavior in
+// the fallback path where MirrorManager.addMirrorSession could not
+// resolve the tmux window ID eagerly (e.g. transient ListWindows error),
+// so TmuxWindow stays as the mirror name until the next SyncWithTmux
+// pass. In this state both emission and the sidebar key by "rm-xxxx",
+// so the helper's rewrite keeps the event consistent. Primary Bug 4 fix
+// is the eager resolve in mirror.go (TestMirrorManager_CreateMirror_
+// StoresLocalTmuxID); this test documents the defensive fallback.
+func TestResolveActivityWindow_TransitionalMirrorName(t *testing.T) {
+	store := session.NewStore("")
+	store.Add(session.Session{
+		ID:         "sess-789",
+		Name:       "fallback",
+		Host:       "remote-host",
+		Path:       "/project",
+		TmuxWindow: "rm-sess7890", // fallback mirror-name state
+	}, "/project")
+
+	ev := model.Event{ActivityNotification: &model.ActivityNotification{
+		Window: "rm-sess7890",
+		State:  model.ActivityRunning,
+	}}
+
+	out := resolveActivityWindow(store, ev, "sess-789")
+
+	if out.ActivityNotification.Window != "rm-sess7890" {
+		t.Errorf("out.Window = %q, want rm-sess7890", out.ActivityNotification.Window)
+	}
+	if out.ActivityNotification.State != model.ActivityRunning {
+		t.Errorf("out.State = %v, want Running", out.ActivityNotification.State)
+	}
+}
+
 // TestResolveActivityWindow_SessionWithoutTmuxWindow verifies that a
 // session present in the store but with an empty TmuxWindow (e.g. mirror
 // not yet created by SyncWithTmux) falls through unchanged. Replacing
