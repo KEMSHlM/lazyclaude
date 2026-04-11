@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -359,6 +360,88 @@ func TestSyncPluginProject_TreeEmptiesAfterLocal_ResetsToCWD(t *testing.T) {
 		"empty-tree recovery must not leave projectDir pointing at the last local project")
 	assert.NotEmpty(t, app.pluginState.projectDir,
 		"empty-tree recovery must set projectDir to the CWD fallback")
+}
+
+func TestSyncPluginProject_TreeEmpties_ClearsFlagEvenWhenProjectDirIsCWD(t *testing.T) {
+	// Regression for codex P1 on 7b5c6ea: when the prior local
+	// selection happens to equal the CWD fallback, the earlier
+	// `projectDir != cwd` guard skipped the recovery entirely and
+	// left remoteDisabled stuck true. The flag clear must happen
+	// independently of that refresh-gating check.
+	app, _, _ := newRemoteDisabledApp(t)
+	cwd, err := filepath.Abs(".")
+	require.NoError(t, err)
+
+	// Construct a project tree whose local project Path equals the
+	// process CWD, so the later empty-tree branch sees projectDir == cwd.
+	projects := []ProjectItem{
+		{
+			ID:       "local-cwd",
+			Name:     "cwd",
+			Path:     cwd,
+			Host:     "",
+			Expanded: true,
+			Sessions: []SessionItem{{ID: "ls1", Name: "ls1", Path: cwd}},
+		},
+		{
+			ID:       "remote",
+			Name:     "remote",
+			Path:     "/remote/path",
+			Host:     "ssh-host",
+			Expanded: true,
+			Sessions: []SessionItem{{ID: "rs1", Name: "rs1", Host: "ssh-host", Path: "/remote/path/rs1"}},
+		},
+	}
+	attachProjectsAndRefresh(app, projects)
+
+	// Local → remote → tree empties.
+	app.cursor = 0
+	app.syncPluginProject()
+	require.Equal(t, cwd, app.pluginState.projectDir)
+
+	app.cursor = 2
+	app.syncPluginProject()
+	require.True(t, app.pluginState.remoteDisabled)
+
+	attachProjectsAndRefresh(app, nil)
+	app.cursor = 0
+	require.Nil(t, app.currentNode())
+	require.Empty(t, app.cachedNodes)
+
+	app.syncPluginProject()
+
+	assert.False(t, app.pluginState.remoteDisabled,
+		"flag must clear on empty-tree recovery even when projectDir already equals CWD")
+	assert.False(t, app.mcpState.remoteDisabled)
+}
+
+func TestSyncPluginProject_EmptyTreeReset_ResetsPanelCursors(t *testing.T) {
+	// Regression for codex P2 on 7b5c6ea: when the empty-tree
+	// recovery swaps to the CWD fallback, the panel cursors must
+	// zero, otherwise an out-of-range cursor silently blocks write
+	// handlers (PluginUninstall / PluginToggleEnabled / MCPToggleDenied)
+	// via their own `cursor >= len(...)` early returns.
+	app, _, _ := newRemoteDisabledApp(t)
+	attachProjectsAndRefresh(app, remoteAndLocalProjects())
+
+	// Select local A and park the panel cursors deep.
+	app.cursor = 0
+	app.syncPluginProject()
+	app.pluginState.installedCursor = 99
+	app.pluginState.marketCursor = 99
+	app.mcpState.cursor = 99
+
+	// Trigger the empty-tree recovery.
+	attachProjectsAndRefresh(app, nil)
+	app.cursor = 0
+	app.syncPluginProject()
+
+	assert.Zero(t, app.pluginState.installedCursor,
+		"installedCursor must reset on empty-tree recovery")
+	assert.Zero(t, app.pluginState.marketCursor,
+		"marketCursor must reset on empty-tree recovery")
+	assert.Zero(t, app.mcpState.cursor,
+		"mcpState.cursor must reset on empty-tree recovery")
 }
 
 func TestSyncPluginProject_EmptyTreeReset_IsIdempotent(t *testing.T) {

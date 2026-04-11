@@ -195,15 +195,32 @@ func (a *App) syncPluginProject() {
 		// the reset has run the first time, subsequent layout passes
 		// observe projectDir == cwd and skip the re-spawn.
 		if len(a.cachedNodes) == 0 {
+			// Always clear the remoteDisabled flags on empty-tree
+			// recovery: even if projectDir already matches cwd (the
+			// user started lazyclaude in the lazyclaude repo, for
+			// instance), leaving the flags set would pin the panels
+			// to the remote placeholder and make guardRemoteOp reject
+			// local plugin/MCP actions forever.
+			clearRemoteDisabled()
+
 			cwd, _ := filepath.Abs(".")
 			if a.pluginState.projectDir != cwd {
-				clearRemoteDisabled()
+				// Panel cursors track the previous project's item
+				// count; swapping to the CWD fallback without
+				// zeroing them can leave installedCursor /
+				// marketCursor / mcpState.cursor out of range,
+				// which silently blocks write handlers that
+				// short-circuit on `cursor >= len(...)`. Mirror
+				// the local-node branch below.
+				a.pluginState.installedCursor = 0
+				a.pluginState.marketCursor = 0
 				a.pluginState.projectDir = cwd
 				a.plugins.SetProjectDir(cwd)
 				a.runPluginAsync(func(ctx context.Context) error {
 					return a.plugins.Refresh(ctx)
 				})
 				if a.mcpServers != nil {
+					a.mcpState.cursor = 0
 					a.mcpServers.SetProjectDir(cwd)
 					a.runMCPAsync(func(ctx context.Context) error {
 						return a.mcpServers.Refresh(ctx)
