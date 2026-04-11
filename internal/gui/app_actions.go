@@ -147,6 +147,8 @@ func (a *App) syncPluginProjectOnce() {
 	a.pluginState.remoteDisabled = false
 	if a.mcpServers != nil {
 		a.mcpState.remoteDisabled = false
+		a.mcpState.remoteKey = ""
+		a.mcpServers.SetHost("")
 	}
 	a.runPluginAsync(func(ctx context.Context) error {
 		return a.plugins.Refresh(ctx)
@@ -168,14 +170,17 @@ func (a *App) syncPluginProject() {
 		return
 	}
 
-	// clearRemoteDisabled resets both remoteDisabled flags. Used by the
-	// local-node branch AND the no-node early return so the panels do not
-	// stay stuck in "remote disabled" state after a remote session is
-	// closed and there is no node to drive the local branch.
+	// clearRemoteDisabled resets the plugin remoteDisabled flag and
+	// switches the MCP provider back to the local code path. Used by
+	// the local-node branch AND the no-node early return so the panels
+	// do not stay stuck in "remote disabled" state after a remote
+	// session is closed and there is no node to drive the local branch.
 	clearRemoteDisabled := func() {
 		a.pluginState.remoteDisabled = false
 		if a.mcpServers != nil {
 			a.mcpState.remoteDisabled = false
+			a.mcpState.remoteKey = ""
+			a.mcpServers.SetHost("")
 		}
 	}
 
@@ -235,18 +240,40 @@ func (a *App) syncPluginProject() {
 		return
 	}
 
-	// Remote node: mark panels as disabled without touching provider state.
-	// We intentionally do NOT clear pluginState.projectDir or call
-	// SetProjectDir("") here:
-	//   - Clearing projectDir re-triggers syncPluginProjectOnce fallback
-	//     which runs Refresh against the process CWD.
-	//   - SetProjectDir("") makes plugin.ExecCLI run in the process CWD.
-	// Instead, flip remoteDisabled so the render layer shows a placeholder
-	// and write entry points bail out with a status message.
-	if _, isRemote := a.isRemoteNodeSelected(); isRemote {
+	// Remote node.
+	//   - Plugin panel: stays disabled (Phase 3 will SSH-wrap the
+	//     `claude plugins` CLI). We intentionally do NOT clear
+	//     pluginState.projectDir or call SetProjectDir("") — see the
+	//     Phase 1 rationale below.
+	//   - MCP panel: Phase 2 drives the provider through its SSH code
+	//     path. SetHost + SetProjectDir flip the manager into remote
+	//     mode and runMCPAsync loads the remote server list.
+	if host, isRemote := a.isRemoteNodeSelected(); isRemote {
 		a.pluginState.remoteDisabled = true
 		if a.mcpServers != nil {
-			a.mcpState.remoteDisabled = true
+			a.mcpState.remoteDisabled = false
+
+			var remoteProjectPath string
+			if node.Kind == ProjectNode && node.Project != nil {
+				remoteProjectPath = node.Project.Path
+			} else if node.Session != nil {
+				remoteProjectPath = a.configDirForSession(node.Session)
+			}
+
+			// Dedupe: avoid respam on cursor moves within the same
+			// remote project. Every MoveCursorUp/Down triggers this
+			// sync, so kicking off an SSH round-trip unconditionally
+			// would hammer the remote host.
+			key := host + "|" + remoteProjectPath
+			if remoteProjectPath != "" && a.mcpState.remoteKey != key {
+				a.mcpState.remoteKey = key
+				a.mcpState.cursor = 0
+				a.mcpServers.SetHost(host)
+				a.mcpServers.SetProjectDir(remoteProjectPath)
+				a.runMCPAsync(func(ctx context.Context) error {
+					return a.mcpServers.Refresh(ctx)
+				})
+			}
 		}
 		return
 	}
@@ -1002,9 +1029,6 @@ func (a *App) MCPCursorUp() {
 }
 
 func (a *App) MCPToggleDenied() {
-	if a.guardRemoteOp("MCP editing") {
-		return
-	}
 	if a.mcpServers == nil || a.pluginState.tabIdx != keymap.PluginTabMCP {
 		return
 	}
@@ -1019,9 +1043,6 @@ func (a *App) MCPToggleDenied() {
 }
 
 func (a *App) MCPRefresh() {
-	if a.guardRemoteOp("MCP editing") {
-		return
-	}
 	if a.mcpServers == nil {
 		return
 	}

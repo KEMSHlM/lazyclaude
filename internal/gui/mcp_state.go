@@ -16,6 +16,7 @@ type MCPItem struct {
 // MCPProvider abstracts MCP operations for the GUI layer.
 type MCPProvider interface {
 	SetProjectDir(dir string)
+	SetHost(host string)
 	Refresh(ctx context.Context) error
 	Servers() []MCPItem
 	ToggleDenied(ctx context.Context, name string) error
@@ -25,7 +26,8 @@ type MCPProvider interface {
 type MCPState struct {
 	cursor         int
 	loading        bool
-	remoteDisabled bool // true when cursor is on a remote (SSH) node
+	remoteDisabled bool   // true when MCP editing is not supported for the selection
+	remoteKey      string // cached "host|projectDir" for the last remote sync (dedupe)
 }
 
 // NewMCPState creates a new MCPState.
