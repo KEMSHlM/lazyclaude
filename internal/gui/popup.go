@@ -107,7 +107,12 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 
 		// Store viewport height before rendering so scroll bounds stay consistent.
 		_, viewH := v.Size()
-		e.popup.SetViewportHeight(viewH - 1)
+		visibleLines := viewH - 1
+		e.popup.SetViewportHeight(visibleLines)
+		// Clamp scroll position to new max after viewport resize.
+		if max := e.popup.MaxScroll(visibleLines); e.popup.ScrollY() > max {
+			e.popup.SetScrollY(max)
+		}
 
 		if e.popup.IsDiff() {
 			renderDiffPopup(v, e.popup)
