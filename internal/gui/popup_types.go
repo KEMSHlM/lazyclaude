@@ -212,11 +212,14 @@ func (p *DiffPopup) ensureCache() {
 	diffOutput := generateDiffFromContents(n.OldFilePath, n.NewContents)
 	parsed := presentation.ParseUnifiedDiff(diffOutput)
 
+	// Compute line-number column width from the maximum line number.
+	numWidth := presentation.NumWidth(presentation.MaxLineNum(parsed))
+
 	// Prepend file path line from notification (not from diff headers).
 	var lines []string
 	var kinds []presentation.DiffLineKind
 	fpLine := presentation.DiffLine{Kind: presentation.DiffFilePath, Content: n.OldFilePath}
-	lines = append(lines, presentation.FormatInlineDiffLine(fpLine))
+	lines = append(lines, presentation.FormatInlineDiffLine(fpLine, numWidth))
 	kinds = append(kinds, presentation.DiffFilePath)
 
 	// Blank line after file path (also serves as separator before first hunk).
@@ -237,7 +240,7 @@ func (p *DiffPopup) ensureCache() {
 		if dl.Kind == presentation.DiffHunk {
 			firstHunk = false
 		}
-		lines = append(lines, presentation.FormatInlineDiffLine(dl))
+		lines = append(lines, presentation.FormatInlineDiffLine(dl, numWidth))
 		kinds = append(kinds, dl.Kind)
 	}
 	p.lines = lines

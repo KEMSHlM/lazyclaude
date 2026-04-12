@@ -236,10 +236,10 @@ func TestDiffPopup_ContentLines_InlineFormat(t *testing.T) {
 	}
 	p := NewDiffPopup(n)
 	lines := p.ContentLines()
-	// Add lines should use "  + " prefix (4-char width, no line numbers).
+	// Add lines should contain the "│ + " separator with line numbers.
 	for i, k := range p.ContentKinds() {
 		if k == presentation.DiffAdd {
-			assert.True(t, strings.HasPrefix(lines[i], "  + "), "Add lines should use '  + ' prefix, got: %q", lines[i])
+			assert.Contains(t, lines[i], "\u2502 + ", "Add lines should contain '\u2502 + ' separator, got: %q", lines[i])
 		}
 	}
 }

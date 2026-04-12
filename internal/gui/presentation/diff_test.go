@@ -187,40 +187,88 @@ func TestFormatDiffLine_Hunk(t *testing.T) {
 
 // --- FormatInlineDiffLine tests ---
 
-func TestFormatInlineDiffLine_Add(t *testing.T) {
+func TestFormatInlineDiffLine_Add_WithLineNums(t *testing.T) {
 	t.Parallel()
 	dl := presentation.DiffLine{Kind: presentation.DiffAdd, Content: "new line", NewNum: 42}
-	assert.Equal(t, "  + new line", presentation.FormatInlineDiffLine(dl))
+	// numWidth=2: "   42 │ + new line"
+	assert.Equal(t, "   42 \u2502 + new line", presentation.FormatInlineDiffLine(dl, 2))
 }
 
-func TestFormatInlineDiffLine_Del(t *testing.T) {
+func TestFormatInlineDiffLine_Del_WithLineNums(t *testing.T) {
 	t.Parallel()
 	dl := presentation.DiffLine{Kind: presentation.DiffDel, Content: "old line", OldNum: 10}
-	assert.Equal(t, "  - old line", presentation.FormatInlineDiffLine(dl))
+	// numWidth=2: "10    │ - old line"
+	assert.Equal(t, "10    \u2502 - old line", presentation.FormatInlineDiffLine(dl, 2))
 }
 
-func TestFormatInlineDiffLine_Context(t *testing.T) {
+func TestFormatInlineDiffLine_Context_WithLineNums(t *testing.T) {
 	t.Parallel()
 	dl := presentation.DiffLine{Kind: presentation.DiffContext, Content: "unchanged", OldNum: 5, NewNum: 5}
-	assert.Equal(t, "    unchanged", presentation.FormatInlineDiffLine(dl))
+	// numWidth=2: " 5  5 │   unchanged"
+	assert.Equal(t, " 5  5 \u2502   unchanged", presentation.FormatInlineDiffLine(dl, 2))
+}
+
+func TestFormatInlineDiffLine_Add_ZeroWidth(t *testing.T) {
+	t.Parallel()
+	dl := presentation.DiffLine{Kind: presentation.DiffAdd, Content: "line", NewNum: 1}
+	assert.Equal(t, "  + line", presentation.FormatInlineDiffLine(dl, 0))
+}
+
+func TestFormatInlineDiffLine_Del_ZeroWidth(t *testing.T) {
+	t.Parallel()
+	dl := presentation.DiffLine{Kind: presentation.DiffDel, Content: "line", OldNum: 1}
+	assert.Equal(t, "  - line", presentation.FormatInlineDiffLine(dl, 0))
+}
+
+func TestFormatInlineDiffLine_Context_ZeroWidth(t *testing.T) {
+	t.Parallel()
+	dl := presentation.DiffLine{Kind: presentation.DiffContext, Content: "line", OldNum: 1, NewNum: 1}
+	assert.Equal(t, "    line", presentation.FormatInlineDiffLine(dl, 0))
 }
 
 func TestFormatInlineDiffLine_Hunk_WithFuncContext(t *testing.T) {
 	t.Parallel()
 	dl := presentation.DiffLine{Kind: presentation.DiffHunk, Content: "@@ -10,7 +10,7 @@ func main() {"}
-	assert.Equal(t, "  @@ func main() {", presentation.FormatInlineDiffLine(dl))
+	assert.Equal(t, "  @@ func main() {", presentation.FormatInlineDiffLine(dl, 3))
 }
 
 func TestFormatInlineDiffLine_Hunk_NoFuncContext(t *testing.T) {
 	t.Parallel()
 	dl := presentation.DiffLine{Kind: presentation.DiffHunk, Content: "@@ -1,3 +1,3 @@"}
-	assert.Equal(t, "  @@", presentation.FormatInlineDiffLine(dl))
+	assert.Equal(t, "  @@", presentation.FormatInlineDiffLine(dl, 2))
 }
 
 func TestFormatInlineDiffLine_FilePath(t *testing.T) {
 	t.Parallel()
 	dl := presentation.DiffLine{Kind: presentation.DiffFilePath, Content: "/tmp/myfile.go"}
-	assert.Equal(t, "  File: /tmp/myfile.go", presentation.FormatInlineDiffLine(dl))
+	assert.Equal(t, "  File: /tmp/myfile.go", presentation.FormatInlineDiffLine(dl, 3))
+}
+
+// --- NumWidth / MaxLineNum tests ---
+
+func TestNumWidth(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, 1, presentation.NumWidth(0))
+	assert.Equal(t, 1, presentation.NumWidth(9))
+	assert.Equal(t, 2, presentation.NumWidth(10))
+	assert.Equal(t, 2, presentation.NumWidth(99))
+	assert.Equal(t, 3, presentation.NumWidth(100))
+	assert.Equal(t, 4, presentation.NumWidth(1000))
+}
+
+func TestMaxLineNum(t *testing.T) {
+	t.Parallel()
+	lines := []presentation.DiffLine{
+		{Kind: presentation.DiffContext, OldNum: 5, NewNum: 5},
+		{Kind: presentation.DiffDel, OldNum: 42},
+		{Kind: presentation.DiffAdd, NewNum: 100},
+	}
+	assert.Equal(t, 100, presentation.MaxLineNum(lines))
+}
+
+func TestMaxLineNum_Empty(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, 0, presentation.MaxLineNum(nil))
 }
 
 // --- ExtractHunkLabel tests ---

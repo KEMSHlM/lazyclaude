@@ -166,21 +166,69 @@ func ExtractHunkLabel(hunkLine string) string {
 	return "@@ " + label
 }
 
-// FormatInlineDiffLine renders a diff line in clean inline format
-// without line numbers, using 4-char-wide prefix (2-space indent + symbol + space).
-func FormatInlineDiffLine(dl DiffLine) string {
+// FormatInlineDiffLine renders a diff line in clean inline format with
+// two-column line numbers (old/new) separated by U+2502 (│).
+// numWidth controls the width of each line-number column (0 = no numbers).
+func FormatInlineDiffLine(dl DiffLine, numWidth int) string {
 	switch dl.Kind {
 	case DiffFilePath:
 		return "  File: " + dl.Content
 	case DiffHunk:
 		return "  " + ExtractHunkLabel(dl.Content)
 	case DiffAdd:
+		if numWidth > 0 {
+			blank := strings.Repeat(" ", numWidth)
+			return fmt.Sprintf("%s %*d \u2502 + %s", blank, numWidth, dl.NewNum, dl.Content)
+		}
 		return "  + " + dl.Content
 	case DiffDel:
+		if numWidth > 0 {
+			blank := strings.Repeat(" ", numWidth)
+			return fmt.Sprintf("%*d %s \u2502 - %s", numWidth, dl.OldNum, blank, dl.Content)
+		}
 		return "  - " + dl.Content
 	case DiffContext:
+		if numWidth > 0 {
+			old := strings.Repeat(" ", numWidth)
+			new_ := old
+			if dl.OldNum > 0 {
+				old = fmt.Sprintf("%*d", numWidth, dl.OldNum)
+			}
+			if dl.NewNum > 0 {
+				new_ = fmt.Sprintf("%*d", numWidth, dl.NewNum)
+			}
+			return fmt.Sprintf("%s %s \u2502   %s", old, new_, dl.Content)
+		}
 		return "    " + dl.Content
 	default:
 		return dl.Content
 	}
+}
+
+// MaxLineNum returns the maximum line number across all DiffLines,
+// used to determine the numWidth for formatting.
+func MaxLineNum(lines []DiffLine) int {
+	max := 0
+	for _, dl := range lines {
+		if dl.OldNum > max {
+			max = dl.OldNum
+		}
+		if dl.NewNum > max {
+			max = dl.NewNum
+		}
+	}
+	return max
+}
+
+// NumWidth returns the number of digits needed to display n.
+func NumWidth(n int) int {
+	if n <= 0 {
+		return 1
+	}
+	w := 0
+	for n > 0 {
+		w++
+		n /= 10
+	}
+	return w
 }
