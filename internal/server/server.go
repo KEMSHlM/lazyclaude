@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -519,7 +520,7 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 
 	// For Edit tool, read the existing file and apply the replacement to
 	// compute new contents. This routes the notification to DiffPopup.
-	// If ReadFile fails (file doesn't exist yet), fall back to ToolPopup.
+	// Falls back to ToolPopup when the file cannot be read or is too large.
 	if toolName == "Edit" {
 		var params struct {
 			FilePath   string `json:"file_path"`
@@ -528,16 +529,26 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 			ReplaceAll bool   `json:"replace_all"`
 		}
 		if json.Unmarshal([]byte(input), &params) == nil && params.FilePath != "" && params.OldString != "" {
-			oldContent, err := os.ReadFile(params.FilePath)
-			if err == nil {
-				var newContent string
-				if params.ReplaceAll {
-					newContent = strings.ReplaceAll(string(oldContent), params.OldString, params.NewString)
-				} else {
-					newContent = strings.Replace(string(oldContent), params.OldString, params.NewString, 1)
+			// Resolve relative paths against the working directory.
+			absPath := params.FilePath
+			if !filepath.IsAbs(absPath) && cwd != "" {
+				absPath = filepath.Join(cwd, absPath)
+			}
+			// Only read regular files up to 2 MB to avoid blocking on
+			// FIFOs, device nodes, or excessively large files.
+			const maxEditFileSize = 2 << 20
+			if fi, statErr := os.Stat(absPath); statErr == nil && fi.Mode().IsRegular() && fi.Size() <= maxEditFileSize {
+				oldContent, err := os.ReadFile(absPath)
+				if err == nil {
+					var newContent string
+					if params.ReplaceAll {
+						newContent = strings.ReplaceAll(string(oldContent), params.OldString, params.NewString)
+					} else {
+						newContent = strings.Replace(string(oldContent), params.OldString, params.NewString, 1)
+					}
+					n.OldFilePath = absPath
+					n.NewContents = newContent
 				}
-				n.OldFilePath = params.FilePath
-				n.NewContents = newContent
 			}
 		}
 	}

@@ -547,6 +547,60 @@ func TestServer_NotifyBroker_EditFallsBackOnMissingFile(t *testing.T) {
 	}
 }
 
+// TestServer_NotifyBroker_EditRelativePath verifies that Edit with a relative
+// file_path resolves it against the cwd before reading.
+func TestServer_NotifyBroker_EditRelativePath(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+	srv.State().SetConn("c1", &server.ConnState{PID: 2004, Window: "@4"})
+
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "rel.go"), []byte("old line\n"), 0o644))
+
+	broker := srv.NotifyBroker()
+	sub := broker.Subscribe(4)
+	defer sub.Cancel()
+
+	// Phase 1: tool_info with cwd set.
+	body1, _ := json.Marshal(map[string]any{
+		"type":       "tool_info",
+		"pid":        2004,
+		"tool_name":  "Edit",
+		"tool_input": map[string]any{"file_path": "rel.go", "old_string": "old line", "new_string": "new line"},
+		"cwd":        tmpDir,
+	})
+	resp1 := postNotify(t, port, body1)
+	resp1.Body.Close()
+	require.Equal(t, http.StatusOK, resp1.StatusCode)
+
+	// Drain ActivityNotification.
+	select {
+	case ev := <-sub.Ch():
+		require.NotNil(t, ev.ActivityNotification)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for activity event")
+	}
+
+	// Phase 2: permission_prompt.
+	body2, _ := json.Marshal(map[string]any{
+		"pid":     2004,
+		"message": "Allow Edit on rel.go?",
+	})
+	resp2 := postNotify(t, port, body2)
+	resp2.Body.Close()
+	require.Equal(t, http.StatusOK, resp2.StatusCode)
+
+	select {
+	case ev := <-sub.Ch():
+		require.NotNil(t, ev.Notification)
+		assert.Equal(t, filepath.Join(tmpDir, "rel.go"), ev.Notification.OldFilePath)
+		assert.Equal(t, "new line\n", ev.Notification.NewContents)
+		assert.True(t, ev.Notification.IsDiff())
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for broker event")
+	}
+}
+
 // TestServer_NotifyBroker_NonWriteToolNoDiffFields verifies that non-Write/Edit tools
 // do not populate diff fields even if input contains file_path.
 func TestServer_NotifyBroker_NonWriteToolNoDiffFields(t *testing.T) {
