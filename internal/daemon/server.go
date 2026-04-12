@@ -411,6 +411,11 @@ func (s *DaemonServer) handleSessionResume(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if req.ID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
 	sess, err := s.mgr.ResumeSession(r.Context(), req.ID, req.Prompt, req.Name)
 	if err != nil {
 		s.log.Printf("session/resume: %v", err)

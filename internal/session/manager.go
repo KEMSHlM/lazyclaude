@@ -657,13 +657,18 @@ func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name string) (*
 			projectRoot = project.Path
 		}
 
-		// Clean up old entry (kill tmux window if Dead, remove from store).
+		// Kill the old tmux window so the new session can reuse the worktree.
+		// Orphan windows are skipped: the tmux window may not exist.
+		// Running/Detached/Dead sessions all get their window killed because
+		// we are about to launch a replacement in the same worktree directory.
 		target := old.TmuxTarget()
 		if old.Status != StatusOrphan {
 			_ = m.tmux.KillWindow(ctx, target)
 		}
 		m.store.Remove(id)
-		_ = m.store.Save()
+		if err := m.store.Save(); err != nil {
+			m.log.Warn("resumeSession.intermediateSave", "err", err)
+		}
 
 		return m.launchWorktreeSession(ctx, old.Name, old.Path, prompt, projectRoot, old.Role, id)
 	}
@@ -673,18 +678,50 @@ func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name string) (*
 		return nil, fmt.Errorf("session not found: %s (specify --name for GC'd sessions)", id)
 	}
 
-	projects := m.store.Projects()
-	if len(projects) == 0 {
-		return nil, fmt.Errorf("no projects registered")
+	// Validate worktree name to prevent path traversal.
+	if err := ValidateWorktreeName(name); err != nil {
+		return nil, fmt.Errorf("invalid worktree name: %w", err)
 	}
-	projectRoot := projects[0].Path
+
+	// Find the project that owns this worktree by checking which project's
+	// worktree directory contains a matching subdirectory.
+	projectRoot, err := m.findProjectRootForWorktree(name)
+	if err != nil {
+		return nil, err
+	}
+
 	wtPath := filepath.Join(projectRoot, ".lazyclaude", "worktrees", name)
+
+	// Defense-in-depth: verify the resolved path is inside the expected directory.
+	expectedPrefix := filepath.Join(projectRoot, ".lazyclaude", "worktrees") + string(filepath.Separator)
+	if !strings.HasPrefix(wtPath, expectedPrefix) {
+		return nil, fmt.Errorf("resolved worktree path escapes worktrees directory: %s", wtPath)
+	}
 
 	if _, err := os.Stat(wtPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("worktree directory not found: %s", wtPath)
 	}
 
 	return m.launchWorktreeSession(ctx, name, wtPath, prompt, projectRoot, RoleWorker, id)
+}
+
+// findProjectRootForWorktree searches registered projects for one whose
+// worktree directory contains a subdirectory matching name. Returns the
+// project root path or an error if no match is found.
+func (m *Manager) findProjectRootForWorktree(name string) (string, error) {
+	projects := m.store.Projects()
+	if len(projects) == 0 {
+		return "", fmt.Errorf("no projects registered")
+	}
+	for _, p := range projects {
+		candidate := filepath.Join(p.Path, ".lazyclaude", "worktrees", name)
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return p.Path, nil
+		}
+	}
+	// No matching project found — fall back to first project for the error path
+	// (os.Stat in the caller will produce a clear "not found" message).
+	return projects[0].Path, nil
 }
 
 // CreateWorkerSession creates a git worktree and launches Claude Code with the
