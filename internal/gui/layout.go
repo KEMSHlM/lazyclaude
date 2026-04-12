@@ -672,9 +672,7 @@ func (a *App) closeAskpassDialog(g *gocui.Gui) {
 	a.dialog.Kind = DialogNone
 	g.DeleteView("askpass-input")
 	g.Cursor = false
-	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
-		_ = err
-	}
+	_, _ = g.SetCurrentView("sessions")
 }
 
 // copyToClipboard copies text to the system clipboard using pbcopy (macOS).

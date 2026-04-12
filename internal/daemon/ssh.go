@@ -30,12 +30,18 @@ func (e *ExecSSHExecutor) SSHEnv() []string {
 	if e.AskpassBin == "" {
 		return nil
 	}
-	return []string{
+	env := []string{
 		"SSH_ASKPASS=" + e.AskpassBin,
 		"SSH_ASKPASS_REQUIRE=prefer",
-		"DISPLAY=:0",
 		"LAZYCLAUDE_ASKPASS_SOCK=" + e.AskpassSock,
 	}
+	// Only inject DISPLAY if not already set, to avoid overriding
+	// legitimate X11 forwarding. Older SSH (<8.4) requires DISPLAY
+	// for SSH_ASKPASS to trigger when no TTY is present.
+	if os.Getenv("DISPLAY") == "" {
+		env = append(env, "DISPLAY=:0")
+	}
+	return env
 }
 
 func (e *ExecSSHExecutor) Run(ctx context.Context, host, command string) ([]byte, error) {

@@ -7,19 +7,29 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
+
+// askpassReadTimeout is the maximum time to wait for a client to send
+// the prompt string after connecting.
+const askpassReadTimeout = 10 * time.Second
 
 // AskpassServer listens on a Unix socket for SSH_ASKPASS requests.
 // When an askpass client connects, it reads a prompt string, calls
 // the handler to get the user's response (typically via a GUI popup),
 // and sends the response back.
+//
+// Only one handler invocation is active at a time. Concurrent
+// connections are serialized by handlerMu to prevent channel
+// clobbering in the GUI layer.
 type AskpassServer struct {
 	sockPath string
 	listener net.Listener
 	handler  func(prompt string) (string, error)
 
-	mu     sync.Mutex
-	closed bool
+	handlerMu sync.Mutex // serializes handler invocations
+	mu        sync.Mutex
+	closed    bool
 }
 
 // NewAskpassServer creates a new AskpassServer. The handler is called
@@ -33,7 +43,8 @@ func NewAskpassServer(runtimeDir string, handler func(prompt string) (string, er
 }
 
 // Start begins listening on the Unix socket and accepting connections.
-// Each connection is handled in a separate goroutine.
+// Each connection is handled in a separate goroutine, but handler
+// invocations are serialized.
 func (s *AskpassServer) Start() error {
 	// Remove stale socket file.
 	os.Remove(s.sockPath)
@@ -99,13 +110,25 @@ func (s *AskpassServer) acceptLoop() {
 func (s *AskpassServer) handleConn(conn net.Conn) {
 	defer conn.Close()
 
+	// Set a read deadline to prevent goroutine leaks from clients
+	// that connect but never send a prompt.
+	conn.SetReadDeadline(time.Now().Add(askpassReadTimeout))
+
 	scanner := bufio.NewScanner(conn)
 	if !scanner.Scan() {
 		return
 	}
 	prompt := scanner.Text()
 
+	// Clear the deadline for the handler phase (user interaction
+	// may take longer than the read timeout).
+	conn.SetDeadline(time.Time{})
+
+	// Serialize handler calls so only one GUI popup is active at a time.
+	s.handlerMu.Lock()
 	response, err := s.handler(prompt)
+	s.handlerMu.Unlock()
+
 	if err != nil {
 		// Send empty line to signal cancellation.
 		fmt.Fprintln(conn, "")

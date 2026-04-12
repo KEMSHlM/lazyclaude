@@ -62,16 +62,17 @@ func TestSSHEnv_WithAskpass(t *testing.T) {
 		AskpassSock: "/tmp/lazyclaude/askpass.sock",
 	}
 	env := e.SSHEnv()
-	if len(env) != 4 {
-		t.Fatalf("SSHEnv() len = %d, want 4", len(env))
-	}
-	want := []string{
+
+	// Check required env vars (DISPLAY is conditional on os.Getenv).
+	wantPrefix := []string{
 		"SSH_ASKPASS=/usr/local/bin/lazyclaude",
 		"SSH_ASKPASS_REQUIRE=prefer",
-		"DISPLAY=:0",
 		"LAZYCLAUDE_ASKPASS_SOCK=/tmp/lazyclaude/askpass.sock",
 	}
-	for i, w := range want {
+	if len(env) < len(wantPrefix) {
+		t.Fatalf("SSHEnv() len = %d, want >= %d", len(env), len(wantPrefix))
+	}
+	for i, w := range wantPrefix {
 		if env[i] != w {
 			t.Errorf("SSHEnv()[%d] = %q, want %q", i, env[i], w)
 		}

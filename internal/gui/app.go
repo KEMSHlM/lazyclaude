@@ -426,16 +426,15 @@ func (a *App) SetConnectFn(fn func(host string) error) {
 	a.connectFn = fn
 }
 
-// SetAskpassChannel sets the channel that the askpass dialog will use
-// to deliver the user's password input back to the caller.
-func (a *App) SetAskpassChannel(ch chan string) {
-	a.askpassCh = ch
-}
-
 // ShowAskpassPrompt schedules the askpass password dialog to appear
-// on the next event loop cycle. Must be called from any goroutine.
-func (a *App) ShowAskpassPrompt(prompt string) {
+// on the next event loop cycle. The channel receives the user's input
+// (or empty string on cancel). Both the channel assignment and dialog
+// creation happen atomically on the gocui event loop goroutine to
+// prevent data races with keybinding handlers.
+// Safe to call from any goroutine.
+func (a *App) ShowAskpassPrompt(prompt string, ch chan string) {
 	a.gui.Update(func(g *gocui.Gui) error {
+		a.askpassCh = ch
 		a.showAskpassDialog(g, prompt)
 		return nil
 	})

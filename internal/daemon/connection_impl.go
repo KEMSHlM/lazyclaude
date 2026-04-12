@@ -104,6 +104,8 @@ func NewRemoteConnection(host string, lifecycle *LifecycleManager, factory Clien
 // SetAskpassEnv sets the SSH_ASKPASS environment variables that will be
 // passed to all tunnels created by this connection. Must be called before Connect.
 func (rc *RemoteConnection) SetAskpassEnv(env []string) {
+	rc.connMu.Lock()
+	defer rc.connMu.Unlock()
 	rc.askpassEnv = env
 }
 

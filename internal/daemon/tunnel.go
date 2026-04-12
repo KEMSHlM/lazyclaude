@@ -36,6 +36,8 @@ func NewTunnel(host string, remotePort int) *Tunnel {
 // SetAskpassEnv sets the SSH_ASKPASS environment variables for the tunnel.
 // Must be called before Start.
 func (t *Tunnel) SetAskpassEnv(env []string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.askpassEnv = env
 }
 

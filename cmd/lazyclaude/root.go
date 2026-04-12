@@ -119,21 +119,35 @@ func newRootCmd() *cobra.Command {
 
 			// Start the askpass server for SSH password authentication.
 			// The handler shows a gocui popup and blocks until the user
-			// enters a password or cancels.
+			// enters a password or cancels. A 120s timeout prevents
+			// goroutine leaks if the GUI becomes unresponsive.
 			askpassSrv := daemon.NewAskpassServer(paths.RuntimeDir, func(prompt string) (string, error) {
 				ch := make(chan string, 1)
-				app.SetAskpassChannel(ch)
-				app.ShowAskpassPrompt(prompt)
-				response := <-ch
-				return response, nil
+				app.ShowAskpassPrompt(prompt, ch)
+				select {
+				case response := <-ch:
+					return response, nil
+				case <-time.After(120 * time.Second):
+					return "", fmt.Errorf("askpass timeout")
+				}
 			})
+
+			// Only arm ExecSSHExecutor with askpass config when both the
+			// server starts successfully and the binary path is resolved.
+			var askpassBin, askpassSock string
 			if err := askpassSrv.Start(); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: start askpass server: %v\n", err)
+			} else {
+				lc.Register("askpass-server", askpassSrv.Stop)
+				bin, err := os.Executable()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "warning: resolve binary path for askpass: %v\n", err)
+					askpassSrv.Stop()
+				} else {
+					askpassBin = bin
+					askpassSock = askpassSrv.SockPath()
+				}
 			}
-			lc.Register("askpass-server", askpassSrv.Stop)
-
-			// Resolve the lazyclaude binary path for SSH_ASKPASS.
-			askpassBin, _ := os.Executable()
 
 			// Always use CompositeProvider so manual 'c' connect can add remotes.
 			localProvider := &localDaemonProvider{mgr: mgr, tmux: tmuxClient}
@@ -141,7 +155,7 @@ func newRootCmd() *cobra.Command {
 
 			ssh := &daemon.ExecSSHExecutor{
 				AskpassBin:  askpassBin,
-				AskpassSock: askpassSrv.SockPath(),
+				AskpassSock: askpassSock,
 			}
 			lifecycleMgr := daemon.NewLifecycleManager(ssh)
 			clientFactory := func(addr, token string) daemon.ClientAPI {
