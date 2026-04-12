@@ -435,7 +435,11 @@ func (a *App) SetConnectFn(fn func(host string) error) {
 func (a *App) ShowAskpassPrompt(prompt string, ch chan string) {
 	a.gui.Update(func(g *gocui.Gui) error {
 		a.askpassCh = ch
-		a.showAskpassDialog(g, prompt)
+		if !a.showAskpassDialog(g, prompt) {
+			// Dialog creation failed — cancel immediately rather than
+			// waiting for the 120s handler timeout.
+			ch <- ""
+		}
 		return nil
 	})
 }

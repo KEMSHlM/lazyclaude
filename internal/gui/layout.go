@@ -629,6 +629,39 @@ func (a *App) closeConnectDialog(g *gocui.Gui) {
 	}
 }
 
+// sanitizePrompt strips control characters, ANSI escape sequences, and
+// newlines from a server-supplied SSH prompt string. The result is capped
+// to maxPromptLen printable characters for safe display in a gocui title.
+func sanitizePrompt(s string) string {
+	const maxPromptLen = 60
+	var b strings.Builder
+	inEsc := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		// Replace control characters and newlines with space.
+		if r < 0x20 || r == 0x7f {
+			if b.Len() > 0 {
+				b.WriteRune(' ')
+			}
+			continue
+		}
+		if b.Len() >= maxPromptLen {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
+}
+
 // showAskpassDialog creates a masked input view for SSH password entry.
 // The prompt string is displayed as the view title.
 func (a *App) showAskpassDialog(g *gocui.Gui, prompt string) bool {
@@ -648,8 +681,10 @@ func (a *App) showAskpassDialog(g *gocui.Gui, prompt string) bool {
 	}
 	setRoundedFrame(v)
 
-	// Trim and format prompt for title.
-	title := strings.TrimSpace(prompt)
+	// Sanitize server-supplied prompt: strip control characters and
+	// ANSI escapes, collapse to a single printable line, and cap length.
+	// SSH prompt strings are server-controlled (keyboard-interactive).
+	title := sanitizePrompt(prompt)
 	if title == "" {
 		title = "Password"
 	}
