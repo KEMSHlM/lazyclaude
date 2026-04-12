@@ -385,7 +385,7 @@ func writeWorktreeLauncher(systemPrompt, userPrompt, runtimeDir, sessionID strin
 	sb.WriteString("rm -f \"$0\"\n")
 	sb.WriteString("exec claude")
 	sb.WriteString(" --session-id ")
-	sb.WriteString(sessionID)
+	sb.WriteString(shell.Quote(sessionID))
 
 	// Inject hooks via --settings file so ~/.claude/settings.json stays untouched.
 	// Using a file avoids shell quoting issues with nested single quotes in hook commands.
@@ -491,6 +491,8 @@ func (m *Manager) ToggleProjectExpanded(projectID string) {
 // indicating that the caller manages session identity explicitly.
 func hasSessionFlag(flags []string) bool {
 	for _, f := range flags {
+		// HasPrefix for --session-id: matches both "--session-id" (two-token form)
+		// and "--session-id=value" (single-token form).
 		if f == "--resume" || strings.HasPrefix(f, "--session-id") {
 			return true
 		}
@@ -502,7 +504,7 @@ func (m *Manager) buildClaudeCommand(sess Session) string {
 	claudeArgs := "claude"
 
 	if !hasSessionFlag(sess.Flags) {
-		claudeArgs += " --session-id " + sess.ID
+		claudeArgs += " --session-id " + shell.Quote(sess.ID)
 	}
 
 	// Inject hooks via --settings file so ~/.claude/settings.json stays untouched.

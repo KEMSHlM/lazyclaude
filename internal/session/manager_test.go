@@ -769,7 +769,7 @@ func TestBuildClaudeCommand_IncludesSessionID(t *testing.T) {
 		Path: "/tmp/test",
 	}
 	cmd := mgr.BuildClaudeCommand(sess)
-	assert.Contains(t, cmd, "--session-id aaaabbbb-cccc-dddd-eeee-ffffffffffff")
+	assert.Contains(t, cmd, "--session-id 'aaaabbbb-cccc-dddd-eeee-ffffffffffff'")
 }
 
 func TestBuildClaudeCommand_SkipsSessionID_WhenResumeFlag(t *testing.T) {
@@ -784,6 +784,22 @@ func TestBuildClaudeCommand_SkipsSessionID_WhenResumeFlag(t *testing.T) {
 	}
 	cmd := mgr.BuildClaudeCommand(sess)
 	assert.NotContains(t, cmd, "--session-id")
+}
+
+func TestBuildClaudeCommand_SkipsSessionID_WhenSessionIDFlag(t *testing.T) {
+	t.Parallel()
+	mgr, _ := newTestManager(t)
+
+	sess := session.Session{
+		ID:    "aaaabbbb-cccc-dddd-eeee-ffffffffffff",
+		Name:  "test",
+		Path:  "/tmp/test",
+		Flags: []string{"--session-id", "explicit-value"},
+	}
+	cmd := mgr.BuildClaudeCommand(sess)
+	// Should not inject a second --session-id; only the one from Flags
+	assert.NotContains(t, cmd, "aaaabbbb-cccc-dddd-eeee-ffffffffffff")
+	assert.Contains(t, cmd, "explicit-value")
 }
 
 func TestClaudeEnv_InjectsSessionID(t *testing.T) {

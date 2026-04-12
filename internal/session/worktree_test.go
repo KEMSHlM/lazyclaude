@@ -177,7 +177,7 @@ func TestWriteWorktreeLauncher_BasicContent(t *testing.T) {
 	if !strings.Contains(content, "exec claude") {
 		t.Error("should exec claude")
 	}
-	if !strings.Contains(content, "--session-id test-uuid-1234") {
+	if !strings.Contains(content, "--session-id 'test-uuid-1234'") {
 		t.Error("should contain --session-id")
 	}
 }
