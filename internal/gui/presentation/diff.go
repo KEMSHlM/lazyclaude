@@ -178,13 +178,21 @@ func FormatInlineDiffLine(dl DiffLine, numWidth int) string {
 	case DiffAdd:
 		if numWidth > 0 {
 			blank := strings.Repeat(" ", numWidth)
-			return fmt.Sprintf("%s %*d \u2502 + %s", blank, numWidth, dl.NewNum, dl.Content)
+			newCol := blank
+			if dl.NewNum > 0 {
+				newCol = fmt.Sprintf("%*d", numWidth, dl.NewNum)
+			}
+			return fmt.Sprintf("%s %s \u2502 + %s", blank, newCol, dl.Content)
 		}
 		return "  + " + dl.Content
 	case DiffDel:
 		if numWidth > 0 {
 			blank := strings.Repeat(" ", numWidth)
-			return fmt.Sprintf("%*d %s \u2502 - %s", numWidth, dl.OldNum, blank, dl.Content)
+			oldCol := blank
+			if dl.OldNum > 0 {
+				oldCol = fmt.Sprintf("%*d", numWidth, dl.OldNum)
+			}
+			return fmt.Sprintf("%s %s \u2502 - %s", oldCol, blank, dl.Content)
 		}
 		return "  - " + dl.Content
 	case DiffContext:
