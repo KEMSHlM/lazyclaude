@@ -43,6 +43,10 @@ func ParseSSHHosts(path string) ([]string, error) {
 		// Extract patterns after "Host".
 		rest := strings.TrimSpace(line[4:]) // len("Host") == 4
 		for _, pattern := range strings.Fields(rest) {
+			// Inline comment: stop processing further tokens.
+			if strings.HasPrefix(pattern, "#") {
+				break
+			}
 			if strings.ContainsAny(pattern, "*?[") {
 				continue
 			}

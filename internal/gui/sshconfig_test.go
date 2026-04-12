@@ -121,6 +121,13 @@ Host db1
 `,
 			want: []string{"db1"},
 		},
+		{
+			name: "inline comment stripped",
+			content: `Host prod # primary server
+Host staging
+`,
+			want: []string{"prod", "staging"},
+		},
 	}
 
 	for _, tt := range tests {
