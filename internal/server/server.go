@@ -503,6 +503,20 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 		MaxOption: maxOpt,
 	}
 
+	// For Write tool, extract file_path and content from input JSON
+	// so the notification routes to DiffPopup instead of ToolPopup.
+	if toolName == "Write" {
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(input), &parsed); err == nil {
+			if fp, ok := parsed["file_path"].(string); ok && fp != "" {
+				n.OldFilePath = fp
+			}
+			if content, ok := parsed["content"].(string); ok {
+				n.NewContents = content
+			}
+		}
+	}
+
 	// NOTE: HasSubscribers() and Publish() acquire separate locks, so a
 	// subscriber could Cancel() between the check and the Publish(). In that
 	// narrow window the event is silently dropped. This is acceptable because
