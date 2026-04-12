@@ -190,31 +190,59 @@ func TestFormatDiffLine_Hunk(t *testing.T) {
 func TestFormatInlineDiffLine_Add(t *testing.T) {
 	t.Parallel()
 	dl := presentation.DiffLine{Kind: presentation.DiffAdd, Content: "new line", NewNum: 42}
-	assert.Equal(t, "+ new line", presentation.FormatInlineDiffLine(dl))
+	assert.Equal(t, "  + new line", presentation.FormatInlineDiffLine(dl))
 }
 
 func TestFormatInlineDiffLine_Del(t *testing.T) {
 	t.Parallel()
 	dl := presentation.DiffLine{Kind: presentation.DiffDel, Content: "old line", OldNum: 10}
-	assert.Equal(t, "- old line", presentation.FormatInlineDiffLine(dl))
+	assert.Equal(t, "  - old line", presentation.FormatInlineDiffLine(dl))
 }
 
 func TestFormatInlineDiffLine_Context(t *testing.T) {
 	t.Parallel()
 	dl := presentation.DiffLine{Kind: presentation.DiffContext, Content: "unchanged", OldNum: 5, NewNum: 5}
-	assert.Equal(t, "  unchanged", presentation.FormatInlineDiffLine(dl))
+	assert.Equal(t, "    unchanged", presentation.FormatInlineDiffLine(dl))
 }
 
-func TestFormatInlineDiffLine_Hunk(t *testing.T) {
+func TestFormatInlineDiffLine_Hunk_WithFuncContext(t *testing.T) {
+	t.Parallel()
+	dl := presentation.DiffLine{Kind: presentation.DiffHunk, Content: "@@ -10,7 +10,7 @@ func main() {"}
+	assert.Equal(t, "  @@ func main() {", presentation.FormatInlineDiffLine(dl))
+}
+
+func TestFormatInlineDiffLine_Hunk_NoFuncContext(t *testing.T) {
 	t.Parallel()
 	dl := presentation.DiffLine{Kind: presentation.DiffHunk, Content: "@@ -1,3 +1,3 @@"}
-	assert.Equal(t, "@@ -1,3 +1,3 @@", presentation.FormatInlineDiffLine(dl))
+	assert.Equal(t, "  @@", presentation.FormatInlineDiffLine(dl))
 }
 
 func TestFormatInlineDiffLine_FilePath(t *testing.T) {
 	t.Parallel()
 	dl := presentation.DiffLine{Kind: presentation.DiffFilePath, Content: "/tmp/myfile.go"}
-	assert.Equal(t, "File: /tmp/myfile.go", presentation.FormatInlineDiffLine(dl))
+	assert.Equal(t, "  File: /tmp/myfile.go", presentation.FormatInlineDiffLine(dl))
+}
+
+// --- ExtractHunkLabel tests ---
+
+func TestExtractHunkLabel_WithFuncContext(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "@@ func (s *Server) Start()", presentation.ExtractHunkLabel("@@ -41,4 +41,6 @@ func (s *Server) Start()"))
+}
+
+func TestExtractHunkLabel_NoFuncContext(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "@@", presentation.ExtractHunkLabel("@@ -1,3 +1,3 @@"))
+}
+
+func TestExtractHunkLabel_EmptyTrailing(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "@@", presentation.ExtractHunkLabel("@@ -1 +1 @@  "))
+}
+
+func TestExtractHunkLabel_Malformed(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "@@", presentation.ExtractHunkLabel("not a hunk"))
 }
 
 // --- ParseUnifiedDiff: trailing empty line trimming ---

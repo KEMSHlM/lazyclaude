@@ -216,7 +216,10 @@ func TestDiffPopup_ContentLines_StartsWithFilePath(t *testing.T) {
 	require.NotEmpty(t, lines)
 	// First line should be DiffFilePath with the file path from notification.
 	assert.Equal(t, presentation.DiffFilePath, kinds[0])
-	assert.Equal(t, "File: /nonexistent/path/newfile.go", lines[0])
+	assert.Equal(t, "  File: /nonexistent/path/newfile.go", lines[0])
+	// Second line should be a blank separator.
+	assert.Equal(t, presentation.DiffContext, kinds[1])
+	assert.Equal(t, "", lines[1])
 	// No DiffHeader lines should be present.
 	for _, k := range kinds {
 		assert.NotEqual(t, presentation.DiffHeader, k, "DiffHeader should be filtered out")
@@ -233,10 +236,10 @@ func TestDiffPopup_ContentLines_InlineFormat(t *testing.T) {
 	}
 	p := NewDiffPopup(n)
 	lines := p.ContentLines()
-	// Add lines should use "+ " prefix (no line numbers).
+	// Add lines should use "  + " prefix (4-char width, no line numbers).
 	for i, k := range p.ContentKinds() {
 		if k == presentation.DiffAdd {
-			assert.True(t, strings.HasPrefix(lines[i], "+ "), "Add lines should use '+ ' prefix, got: %q", lines[i])
+			assert.True(t, strings.HasPrefix(lines[i], "  + "), "Add lines should use '  + ' prefix, got: %q", lines[i])
 		}
 	}
 }

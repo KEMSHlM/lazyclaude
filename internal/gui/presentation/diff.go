@@ -151,20 +151,35 @@ func FormatDiffLine(dl DiffLine, numWidth int) string {
 	}
 }
 
+// ExtractHunkLabel extracts the function context from a hunk header,
+// stripping the line-number range. Returns "@@ func ..." or just "@@"
+// if no function context is present.
+func ExtractHunkLabel(hunkLine string) string {
+	parts := strings.SplitN(hunkLine, "@@", 3)
+	if len(parts) < 3 {
+		return "@@"
+	}
+	label := strings.TrimSpace(parts[2])
+	if label == "" {
+		return "@@"
+	}
+	return "@@ " + label
+}
+
 // FormatInlineDiffLine renders a diff line in clean inline format
-// without line numbers, using - / + / (space) prefix style.
+// without line numbers, using 4-char-wide prefix (2-space indent + symbol + space).
 func FormatInlineDiffLine(dl DiffLine) string {
 	switch dl.Kind {
 	case DiffFilePath:
-		return "File: " + dl.Content
+		return "  File: " + dl.Content
 	case DiffHunk:
-		return dl.Content
+		return "  " + ExtractHunkLabel(dl.Content)
 	case DiffAdd:
-		return "+ " + dl.Content
+		return "  + " + dl.Content
 	case DiffDel:
-		return "- " + dl.Content
+		return "  - " + dl.Content
 	case DiffContext:
-		return "  " + dl.Content
+		return "    " + dl.Content
 	default:
 		return dl.Content
 	}
