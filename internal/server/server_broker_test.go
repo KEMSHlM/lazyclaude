@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -427,7 +428,126 @@ func TestServer_NotifyBroker_WriteNonDiffWhenNoFilePath(t *testing.T) {
 	}
 }
 
-// TestServer_NotifyBroker_NonWriteToolNoDiffFields verifies that non-Write tools
+// TestServer_NotifyBroker_EditPopulatesDiffFields verifies that Edit tool
+// notifications read the file, apply the replacement, and populate
+// OldFilePath/NewContents for DiffPopup routing.
+func TestServer_NotifyBroker_EditPopulatesDiffFields(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+	srv.State().SetConn("c1", &server.ConnState{PID: 2001, Window: "@1"})
+
+	// Create a temp file to simulate the existing file.
+	tmpFile := filepath.Join(t.TempDir(), "edit_target.go")
+	os.WriteFile(tmpFile, []byte("package main\n\nfunc hello() {}\n"), 0o644)
+
+	broker := srv.NotifyBroker()
+	sub := broker.Subscribe(4)
+	defer sub.Cancel()
+
+	inputJSON, _ := json.Marshal(map[string]any{
+		"file_path":  tmpFile,
+		"old_string": "func hello() {}",
+		"new_string": "func hello() { fmt.Println(\"hi\") }",
+	})
+	body, _ := json.Marshal(map[string]any{
+		"pid":       2001,
+		"tool_name": "Edit",
+		"input":     string(inputJSON),
+		"cwd":       "/home/user",
+	})
+	resp := postNotify(t, port, body)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	select {
+	case ev := <-sub.Ch():
+		require.NotNil(t, ev.Notification)
+		assert.Equal(t, "Edit", ev.Notification.ToolName)
+		assert.Equal(t, tmpFile, ev.Notification.OldFilePath)
+		assert.Contains(t, ev.Notification.NewContents, "fmt.Println")
+		assert.NotContains(t, ev.Notification.NewContents, "func hello() {}\n")
+		assert.True(t, ev.Notification.IsDiff(), "Edit notification should be a diff")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for broker event")
+	}
+}
+
+// TestServer_NotifyBroker_EditReplaceAll verifies that Edit with replace_all=true
+// replaces all occurrences of old_string.
+func TestServer_NotifyBroker_EditReplaceAll(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+	srv.State().SetConn("c1", &server.ConnState{PID: 2002, Window: "@2"})
+
+	tmpFile := filepath.Join(t.TempDir(), "replace_all.txt")
+	os.WriteFile(tmpFile, []byte("foo bar foo baz foo"), 0o644)
+
+	broker := srv.NotifyBroker()
+	sub := broker.Subscribe(4)
+	defer sub.Cancel()
+
+	inputJSON, _ := json.Marshal(map[string]any{
+		"file_path":   tmpFile,
+		"old_string":  "foo",
+		"new_string":  "qux",
+		"replace_all": true,
+	})
+	body, _ := json.Marshal(map[string]any{
+		"pid":       2002,
+		"tool_name": "Edit",
+		"input":     string(inputJSON),
+	})
+	resp := postNotify(t, port, body)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	select {
+	case ev := <-sub.Ch():
+		require.NotNil(t, ev.Notification)
+		assert.Equal(t, "qux bar qux baz qux", ev.Notification.NewContents)
+		assert.True(t, ev.Notification.IsDiff())
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for broker event")
+	}
+}
+
+// TestServer_NotifyBroker_EditFallsBackOnMissingFile verifies that Edit
+// falls back to ToolPopup (no diff fields) when the target file doesn't exist.
+func TestServer_NotifyBroker_EditFallsBackOnMissingFile(t *testing.T) {
+	t.Parallel()
+	srv, port, _ := startTestServer(t)
+	srv.State().SetConn("c1", &server.ConnState{PID: 2003, Window: "@3"})
+
+	broker := srv.NotifyBroker()
+	sub := broker.Subscribe(4)
+	defer sub.Cancel()
+
+	inputJSON, _ := json.Marshal(map[string]any{
+		"file_path":  "/nonexistent/path/file.go",
+		"old_string": "old",
+		"new_string": "new",
+	})
+	body, _ := json.Marshal(map[string]any{
+		"pid":       2003,
+		"tool_name": "Edit",
+		"input":     string(inputJSON),
+	})
+	resp := postNotify(t, port, body)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	select {
+	case ev := <-sub.Ch():
+		require.NotNil(t, ev.Notification)
+		assert.Equal(t, "Edit", ev.Notification.ToolName)
+		assert.Empty(t, ev.Notification.OldFilePath, "missing file => OldFilePath should be empty")
+		assert.False(t, ev.Notification.IsDiff(), "Edit with missing file should not be a diff")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for broker event")
+	}
+}
+
+// TestServer_NotifyBroker_NonWriteToolNoDiffFields verifies that non-Write/Edit tools
 // do not populate diff fields even if input contains file_path.
 func TestServer_NotifyBroker_NonWriteToolNoDiffFields(t *testing.T) {
 	t.Parallel()

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -513,6 +514,31 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 		if json.Unmarshal([]byte(input), &params) == nil && params.FilePath != "" {
 			n.OldFilePath = params.FilePath
 			n.NewContents = params.Content
+		}
+	}
+
+	// For Edit tool, read the existing file and apply the replacement to
+	// compute new contents. This routes the notification to DiffPopup.
+	// If ReadFile fails (file doesn't exist yet), fall back to ToolPopup.
+	if toolName == "Edit" {
+		var params struct {
+			FilePath   string `json:"file_path"`
+			OldString  string `json:"old_string"`
+			NewString  string `json:"new_string"`
+			ReplaceAll bool   `json:"replace_all"`
+		}
+		if json.Unmarshal([]byte(input), &params) == nil && params.FilePath != "" {
+			oldContent, err := os.ReadFile(params.FilePath)
+			if err == nil {
+				var newContent string
+				if params.ReplaceAll {
+					newContent = strings.ReplaceAll(string(oldContent), params.OldString, params.NewString)
+				} else {
+					newContent = strings.Replace(string(oldContent), params.OldString, params.NewString, 1)
+				}
+				n.OldFilePath = params.FilePath
+				n.NewContents = newContent
+			}
 		}
 	}
 
