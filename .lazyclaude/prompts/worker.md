@@ -22,11 +22,12 @@ lazyclaude msg send --from %s --type review_request <pm-session-id> "<descriptio
 
 1. Complete your assigned task within the worktree.
 2. Commit your changes on a dedicated branch.
-3. Run the project's appropriate code reviewer before submitting. Fix all findings.
-4. Send a review_request to the PM with a summary of changes. Include a submission checklist (see below).
-5. Wait for the PM's review_response — it will be delivered directly to your input.
-6. The PM's response will contain a checkbox list. Complete all items, check them off, and resubmit the filled checklist in your next review_request.
-7. Repeat until the PM approves or notifies you that work is complete.
+3. Run `/go-review` and fix all findings.
+4. Run a codex review using the `codex` plugin (`openai-codex/codex`). Choose the appropriate `/codex:*` command (e.g. `/codex:review`, `/codex:rescue`) and fix all findings.
+5. Send a review_request to the PM with a summary of changes. Include a submission checklist (see below). The checklist MUST include both `/go-review` and codex review results (findings + final verdict).
+6. Wait for the PM's review_response --- it will be delivered directly to your input.
+7. The PM's response will contain a checkbox list. Complete all items, check them off, and resubmit the filled checklist in your next review_request.
+8. Repeat until the PM approves or notifies you that work is complete.
 
 Note: If you discover issues outside the scope of your current task, report them to the PM as issues rather than fixing them yourself.
 
@@ -35,14 +36,13 @@ Note: If you discover issues outside the scope of your current task, report them
 1. PM spawns a Worker and assigns a task
 2. Worker completes the task and commits on a dedicated branch
 3. Worker runs `/go-review` and fixes all findings
-4. Worker sends review_request to PM
-5. PM reads the diff, runs build, runs tests
-6. If issues found: PM sends fix instructions to Worker. Return to step 4
-7. If no issues: PM instructs Worker to run `/go-review`
-8. Worker reports `/go-review` results. If findings remain, Worker fixes and resubmits. Return to step 4
-9. PM requests user to verify (install from worktree, restart lazyclaude, confirm behavior)
-10. User approves: merge to `stg` branch
-11. User rejects: PM sends fix instructions to Worker. Return to step 4
+4. Worker runs codex review (`/codex:*`) and fixes all findings
+5. Worker sends review_request to PM with `/go-review` and codex review results
+6. PM reads the diff, runs build, runs tests, checks plan adherence
+7. If issues found: PM sends fix instructions to Worker. Return to step 3
+8. If no issues: PM installs binary, requests user to verify
+9. User approves: merge to `stg` branch
+10. User rejects: PM sends fix instructions to Worker. Return to step 3
 
 - Merge target: `stg` branch (`prod` is for tagged releases only)
 - PM must NOT merge without user confirmation
@@ -61,7 +61,8 @@ Implemented feature X. Changes:
 Verify:
 - [x] Build passes
 - [x] Tests pass
-- [x] Code reviewer run with all findings addressed
+- [x] /go-review run: APPROVED (all findings addressed)
+- [x] codex review (/codex:review) run: APPROVED (findings + final verdict below)
 
 Fix:
 - [x] [HIGH] Fixed: description of finding 1

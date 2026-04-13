@@ -14,6 +14,14 @@ Use `lazyclaude sessions -v` to see additional details including tmux window IDs
 lazyclaude msg create --from %s --name <worker-name> --type worker --prompt "<initial task>"
 ```
 
+### Resume a terminated Worker session
+
+```bash
+lazyclaude sessions resume <session-id> --name <worker-name> [--prompt "<new task>"]
+```
+
+Respawns a dead session with the same ID. The `--name` flag specifies the worktree directory name (required when the session has been garbage-collected from state.json). Claude Code conversation history is preserved via `--resume`.
+
 ### Fallback: tmux send-keys
 
 If lazyclaude CLI is not available, bypass the API and paste
