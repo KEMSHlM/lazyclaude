@@ -1327,9 +1327,20 @@ const mouseScrollLines = 3
 
 // ScrollModeMouseUp handles mouse wheel up in fullscreen.
 // Enters scroll mode if not already active, then scrolls the viewport up.
+//
+// Unlike Ctrl+V (ScrollModeEnter), this inlines the Enter logic to avoid
+// a double BumpGeneration+capture. ScrollModeEnter issues its own
+// BumpGeneration + captureScrollbackWithHistorySize, and a second
+// BumpGeneration here would invalidate that in-flight capture. Under
+// rapid mouse scrolling, every capture gets invalidated before completing,
+// so SetLines is never called and the view stays stuck on "Loading...".
 func (a *App) ScrollModeMouseUp() {
 	if !a.scroll.IsActive() {
-		a.ScrollModeEnter()
+		viewH := a.scrollViewHeight()
+		if viewH <= 0 {
+			return
+		}
+		a.scroll.Enter(viewH)
 	}
 	a.scroll.ScrollUp(mouseScrollLines)
 	a.scroll.BumpGeneration()
