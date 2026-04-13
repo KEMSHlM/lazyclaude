@@ -1295,9 +1295,9 @@ func (a *App) ScrollModeHalfDown() {
 }
 
 func (a *App) ScrollModeToTop() {
-	a.scroll.ToTop()
+	a.scroll.ToTop() // sets cursorY=0; sets scrollOffset only if maxOffset known
 	a.scroll.BumpGeneration()
-	a.captureScrollbackWithHistorySize()
+	a.captureScrollbackToTop()
 }
 
 func (a *App) ScrollModeToBottom() {
@@ -1381,8 +1381,8 @@ func (a *App) scrollViewHeight() int {
 
 // captureScrollbackWithHistorySize is like captureScrollbackAsync but also
 // queries HistorySize asynchronously to update the scroll maxOffset. Used by
-// ScrollModeEnter and ScrollModeToTop where the history size is needed for
-// correct g/G navigation but must not block the GUI thread.
+// ScrollModeEnter where the history size is needed for correct g/G navigation
+// but must not block the GUI thread.
 //
 // Both HistorySize and CaptureScrollback run sequentially in the same goroutine.
 // Their gui.Update callbacks are delivered in FIFO order (gocui channel semantics).
@@ -1407,6 +1407,49 @@ func (a *App) captureScrollbackWithHistorySize() {
 			if histErr == nil && histSize > 0 {
 				a.scroll.SetMaxOffset(histSize)
 			}
+			if scrollErr == nil {
+				a.scroll.SetLines(splitLines(result.Content))
+			}
+			return nil
+		})
+	}()
+}
+
+// captureScrollbackToTop fetches HistorySize first, then captures at the
+// computed top position. Unlike captureScrollbackWithHistorySize which
+// captures at the current scrollOffset, this function uses HistorySize to
+// compute the correct top-of-scrollback range before calling CaptureScrollback.
+// This ensures the first "g" press works correctly even when maxOffset is
+// unknown (e.g. after mouse-wheel entry, which skips HistorySize).
+func (a *App) captureScrollbackToTop() {
+	target := a.fullscreen.Target()
+	if target == "" {
+		return
+	}
+	gen := a.scroll.Generation()
+	viewW := a.scrollViewWidth()
+	viewH := a.scroll.ViewHeight()
+
+	go func() {
+		histSize, histErr := a.sessions.HistorySize(target)
+
+		// Compute the top-of-scrollback capture range from HistorySize.
+		topOffset := 0
+		if histErr == nil && histSize > 0 {
+			topOffset = histSize
+		}
+		startLine := -topOffset
+		endLine := viewH - 1 - topOffset
+
+		result, scrollErr := a.sessions.CaptureScrollback(target, viewW, startLine, endLine)
+		a.gui.Update(func(g *gocui.Gui) error {
+			if a.scroll.Generation() != gen {
+				return nil
+			}
+			if histErr == nil && histSize > 0 {
+				a.scroll.SetMaxOffset(histSize)
+			}
+			a.scroll.ToTop() // apply after maxOffset is set
 			if scrollErr == nil {
 				a.scroll.SetLines(splitLines(result.Content))
 			}
