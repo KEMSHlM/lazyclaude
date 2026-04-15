@@ -615,9 +615,18 @@ func (s *DaemonServer) handleMsgSessions(w http.ResponseWriter, r *http.Request)
 // os.UserHomeDir() automatically resolves to the remote user's home directory,
 // making this the canonical way to discover remote profiles.
 //
-// On success: HTTP 200 with ProfileListResponse{Profiles: [...], Error: ""}.
-// Config absent: HTTP 200 with ProfileListResponse{Profiles: [], Error: ""}.
-// Malformed JSON: HTTP 200 with ProfileListResponse{Profiles: nil, Error: "..."}.
+// HTTP 200 is always returned; errors are encoded in ProfileListResponse.Error:
+//
+//   - Config present, valid:   Profiles: [...user profiles + builtin default]
+//   - Config absent:           Profiles: [{builtin default}], Error: ""
+//   - Config malformed:        Profiles: nil, Error: "invalid JSON at line N..."
+//   - Home dir unavailable:    Profiles: nil, Error: "resolve home dir: ..."
+//
+// Security note: ProfileDefAPI.Env carries raw environment variable values from
+// config.json. This endpoint is protected by token authentication
+// (X-Daemon-Authorization), so only callers that already possess the daemon
+// token receive these values. Users who store secrets in profile.env accept
+// that any authenticated API client can read them.
 func (s *DaemonServer) handleProfiles(w http.ResponseWriter, _ *http.Request) {
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -285,6 +285,10 @@ type ProfileListResponse struct {
 // ProfileDefAPI is the wire representation of a profile definition.
 // It mirrors profile.ProfileDef but is defined here to avoid importing
 // the profile package into api.go (which is a types-only file).
+//
+// Security: Env carries raw environment variable values from config.json.
+// The GET /profiles endpoint is protected by token authentication; only
+// callers in possession of the daemon token receive these values.
 type ProfileDefAPI struct {
 	Name        string            `json:"name"`
 	Command     string            `json:"command"`
