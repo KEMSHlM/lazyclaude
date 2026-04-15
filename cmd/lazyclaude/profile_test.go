@@ -167,9 +167,50 @@ func TestProfileList_JSON(t *testing.T) {
 	assert.Equal(t, []string{"--model=opus-4"}, opus.Args)
 	assert.Equal(t, "Opus 1M", opus.Description)
 	assert.False(t, opus.Builtin)
+	assert.False(t, opus.EffectiveDefault, "opus has no default:true so should not be effective default")
 
 	require.NotNil(t, builtin)
 	assert.True(t, builtin.Builtin, "builtin default should have builtin=true")
+	assert.True(t, builtin.EffectiveDefault, "builtin 'default' profile is the effective default when no user default is set")
+}
+
+// TestProfileList_JSON_EffectiveDefault verifies that effective_default tracks
+// the resolved default, not merely the default:true flag.
+func TestProfileList_JSON_EffectiveDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// "sonnet" has default:true, so it is the effective default.
+	// "opus" has no default:true but is listed first.
+	writeProfileConfig(t, home, `{
+		"version": 1,
+		"profiles": [
+			{"name": "opus",   "command": "claude"},
+			{"name": "sonnet", "command": "claude", "default": true}
+		]
+	}`)
+
+	out, _, err := runProfileList(t, "--json")
+	require.NoError(t, err)
+
+	var entries []profileListEntry
+	require.NoError(t, json.Unmarshal([]byte(out), &entries))
+
+	byName := make(map[string]*profileListEntry)
+	for i := range entries {
+		byName[entries[i].Name] = &entries[i]
+	}
+
+	require.NotNil(t, byName["sonnet"])
+	assert.True(t, byName["sonnet"].EffectiveDefault, "sonnet (default:true) should be effective default")
+
+	require.NotNil(t, byName["opus"])
+	assert.False(t, byName["opus"].EffectiveDefault, "opus should not be effective default")
+
+	// builtin 'default' profile must not steal the effective_default mark.
+	if d, ok := byName["default"]; ok {
+		assert.False(t, d.EffectiveDefault, "builtin default should not be effective default when sonnet has default:true")
+	}
 }
 
 // TestProfileList_BrokenConfig verifies that a malformed config.json returns

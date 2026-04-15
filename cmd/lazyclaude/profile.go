@@ -24,14 +24,19 @@ func newProfileCmd() *cobra.Command {
 
 // profileListEntry is the JSON shape emitted by --json.
 // ProfileDef.Builtin carries json:"-" so we use a local struct to expose it.
+// EffectiveDefault is set to true for the profile that would be selected when
+// an empty profile name is requested, matching the '*' mark in table output.
+// Note: Default reflects the user-supplied config flag; EffectiveDefault is
+// the resolved result of profile.ResolveDefault.
 type profileListEntry struct {
-	Name        string            `json:"name"`
-	Command     string            `json:"command"`
-	Args        []string          `json:"args,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Default     bool              `json:"default,omitempty"`
-	Builtin     bool              `json:"builtin,omitempty"`
+	Name             string            `json:"name"`
+	Command          string            `json:"command"`
+	Args             []string          `json:"args,omitempty"`
+	Env              map[string]string `json:"env,omitempty"`
+	Description      string            `json:"description,omitempty"`
+	Default          bool              `json:"default,omitempty"`
+	Builtin          bool              `json:"builtin,omitempty"`
+	EffectiveDefault bool              `json:"effective_default,omitempty"`
 }
 
 func newProfileListCmd() *cobra.Command {
@@ -63,7 +68,7 @@ func newProfileListCmd() *cobra.Command {
 			}
 
 			if asJSON {
-				return renderProfilesJSON(cmd, profiles)
+				return renderProfilesJSON(cmd, profiles, defaultProf)
 			}
 
 			if err := renderProfilesTable(cmd, profiles, defaultProf, verbose); err != nil {
@@ -81,17 +86,18 @@ func newProfileListCmd() *cobra.Command {
 	return cmd
 }
 
-func renderProfilesJSON(cmd *cobra.Command, profiles []profile.ProfileDef) error {
+func renderProfilesJSON(cmd *cobra.Command, profiles []profile.ProfileDef, defaultProf profile.ProfileDef) error {
 	entries := make([]profileListEntry, len(profiles))
 	for i, p := range profiles {
 		entries[i] = profileListEntry{
-			Name:        p.Name,
-			Command:     p.Command,
-			Args:        p.Args,
-			Env:         p.Env,
-			Description: p.Description,
-			Default:     p.Default,
-			Builtin:     p.Builtin,
+			Name:             p.Name,
+			Command:          p.Command,
+			Args:             p.Args,
+			Env:              p.Env,
+			Description:      p.Description,
+			Default:          p.Default,
+			Builtin:          p.Builtin,
+			EffectiveDefault: p.Name == defaultProf.Name,
 		}
 	}
 	enc := json.NewEncoder(cmd.OutOrStdout())

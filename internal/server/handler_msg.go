@@ -133,8 +133,10 @@ func (s *Server) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Type {
 	case "worker":
+		// profile and options are worker-only; they are ignored for other session types.
 		result, err = sc.CreateWorkerSession(ctx, req.Name, req.Prompt, project.Path, req.Profile, req.Options)
 	case "local":
+		// TODO(phase-2b): extend CreateLocalSession with profile/options when daemon route adds support.
 		result, err = sc.CreateLocalSession(ctx, req.Name, project.Path)
 	}
 	if err != nil {
