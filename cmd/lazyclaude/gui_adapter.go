@@ -400,6 +400,8 @@ func (a *guiCompositeAdapter) ProfileItems() []chooser.Item {
 	configPath := filepath.Join(home, ".lazyclaude", "config.json")
 	_, profs, loadErr := profile.Load(configPath)
 	if loadErr != nil || len(profs) == 0 {
+		// Clear manager state so backend resolution matches the builtin-only UI.
+		a.localMgr.SetProfiles(nil)
 		return []chooser.Item{{Label: profile.BuiltinDefaultName, Default: true, Data: profile.BuiltinDefaultName}}
 	}
 	// Sync newly read profiles into the Manager so backend resolution matches.
