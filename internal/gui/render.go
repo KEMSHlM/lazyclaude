@@ -127,6 +127,8 @@ func renderConnectChooser(v *gocui.View, hosts []string, cursor int) {
 
 // renderProfileChooser writes a profile selection list to a gocui view using
 // chooser.Render to display the cursor (▸) and default (*) markers.
+// scrollToCursor is called so that the cursor row stays within the visible
+// viewport even when the profile list is taller than the view height.
 func renderProfileChooser(v *gocui.View, items []chooser.Item, cursor int) {
 	v.Clear()
 	state := chooser.State{Items: items, Cursor: cursor}
@@ -134,6 +136,7 @@ func renderProfileChooser(v *gocui.View, items []chooser.Item, cursor int) {
 	for _, line := range lines {
 		fmt.Fprintln(v, line)
 	}
+	scrollToCursor(v, cursor)
 }
 
 // logFileCache caches readLogLines results, only re-reading when the

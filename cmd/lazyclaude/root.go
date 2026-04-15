@@ -21,6 +21,7 @@ import (
 	"github.com/any-context/lazyclaude/internal/gui"
 	"github.com/any-context/lazyclaude/internal/mcp"
 	"github.com/any-context/lazyclaude/internal/plugin"
+	"github.com/any-context/lazyclaude/internal/profile"
 	"github.com/any-context/lazyclaude/internal/server"
 	"github.com/any-context/lazyclaude/internal/session"
 	"github.com/jesseduffield/gocui"
@@ -78,6 +79,16 @@ func newRootCmd() *cobra.Command {
 			if err := mgr.Load(context.Background()); err != nil {
 				// Non-fatal: tmux might not be running
 				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+			}
+
+			// Install profile list so that profile-aware session creation methods
+			// (CreateOpts, CreateWorktreeOpts, etc.) can resolve named profiles.
+			// Non-fatal: absent or malformed config.json falls back to builtin default.
+			if home, err := os.UserHomeDir(); err == nil {
+				configPath := filepath.Join(home, ".lazyclaude", "config.json")
+				if _, profs, err := profile.Load(configPath); err == nil && len(profs) > 0 {
+					mgr.SetProfiles(profs)
+				}
 			}
 
 			// Skip Claude onboarding dialogs (JSON file I/O only, no subprocess)
