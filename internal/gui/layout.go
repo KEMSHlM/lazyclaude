@@ -995,7 +995,9 @@ func (a *App) showWorktreeChooser(g *gocui.Gui, items []WorktreeInfo) bool {
 func (a *App) closeWorktreeChooser(g *gocui.Gui) {
 	a.dialog.Kind = DialogNone
 	a.dialog.WorktreeItems = nil
-	a.dialog.ParentID = ""
+	// NOTE: ParentID is NOT cleared here because Enter transitions into
+	// the next dialog (worktree create or resume) which needs it.
+	// Esc clears ParentID via the keybinding handler.
 	g.DeleteView("worktree-chooser")
 	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
 		_ = err

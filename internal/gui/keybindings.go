@@ -329,6 +329,7 @@ func (a *App) setupGlobalKeybindings() error {
 
 	if err := a.gui.SetKeybinding("worktree-chooser", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		a.closeWorktreeChooser(g)
+		a.dialog.ParentID = "" // true cancel: clear inherited parent
 		return nil
 	}); err != nil {
 		return err

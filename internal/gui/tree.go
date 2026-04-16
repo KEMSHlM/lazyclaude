@@ -51,20 +51,21 @@ func BuildTreeNodes(projects []ProjectItem, pmCollapsed map[string]bool) []TreeN
 			continue
 		}
 		// Build session ID set and index by ParentID for efficient child lookup.
+		// Orphans (sessions whose ParentID references a missing session) are
+		// promoted to root level in their original slice order to keep the
+		// tree deterministic across rebuilds.
 		sessionIDs := make(map[string]bool, len(p.Sessions))
+		for j := range p.Sessions {
+			sessionIDs[p.Sessions[j].ID] = true
+		}
 		childrenOf := make(map[string][]*SessionItem)
 		for j := range p.Sessions {
 			s := &p.Sessions[j]
-			sessionIDs[s.ID] = true
-			childrenOf[s.ParentID] = append(childrenOf[s.ParentID], s)
-		}
-		// Reparent orphans: sessions whose ParentID references a deleted/missing
-		// session are promoted to root level so they remain visible in the tree.
-		for pid, children := range childrenOf {
+			pid := s.ParentID
 			if pid != "" && !sessionIDs[pid] {
-				childrenOf[""] = append(childrenOf[""], children...)
-				delete(childrenOf, pid)
+				pid = "" // reparent orphan to root
 			}
+			childrenOf[pid] = append(childrenOf[pid], s)
 		}
 		// Recursively append root sessions (ParentID=="") and their subtrees.
 		appendSessionTree(&nodes, p.ID, childrenOf, "", 1, pmCollapsed)
