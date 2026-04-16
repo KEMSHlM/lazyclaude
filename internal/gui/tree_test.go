@@ -179,6 +179,34 @@ func TestBuildTreeNodes_PMCollapsed(t *testing.T) {
 	assert.False(t, nodes[1].Session.Expanded, "collapsed PM should have Expanded=false")
 }
 
+func TestBuildTreeNodes_OrphanedChildren(t *testing.T) {
+	t.Parallel()
+	// Simulate a deleted PM: children reference a ParentID that no longer exists.
+	projects := []gui.ProjectItem{
+		{
+			ID:       "proj-1",
+			Name:     "lazyclaude",
+			Expanded: true,
+			Sessions: []gui.SessionItem{
+				{ID: "w1", Name: "worker-a", ParentID: "deleted-pm"},
+				{ID: "w2", Name: "worker-b", ParentID: "deleted-pm"},
+				{ID: "s1", Name: "standalone"},
+			},
+		},
+	}
+
+	nodes := gui.BuildTreeNodes(projects, nil)
+	// project + 3 sessions (all promoted to root level)
+	require.Len(t, nodes, 4)
+	assert.Equal(t, gui.ProjectNode, nodes[0].Kind)
+
+	// All orphaned children appear at depth 1 (root level).
+	for _, n := range nodes[1:] {
+		assert.Equal(t, gui.SessionNode, n.Kind)
+		assert.Equal(t, 1, n.Depth, "orphaned session %q should be at root depth", n.Session.Name)
+	}
+}
+
 func TestBuildTreeNodes_PMExpanded(t *testing.T) {
 	t.Parallel()
 	projects := []gui.ProjectItem{
