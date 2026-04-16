@@ -93,7 +93,9 @@ func (f *fakeSessionCreator) CreateWorkerSession(ctx context.Context, name, prom
 	return f.result, nil
 }
 
-func (f *fakeSessionCreator) CreateLocalSession(ctx context.Context, name, projectPath string) (*server.SessionCreateResult, error) {
+func (f *fakeSessionCreator) CreateLocalSession(ctx context.Context, name, projectPath, profile, options string) (*server.SessionCreateResult, error) {
+	f.lastProfile = profile
+	f.lastOptions = options
 	if f.err != nil {
 		return nil, f.err
 	}

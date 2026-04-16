@@ -534,9 +534,10 @@ func (a *sessionCreatorAdapter) ResumeSession(ctx context.Context, id, prompt, n
 }
 
 // CreateLocalSession creates a plain session at projectPath and renames it
-// to the caller-specified name.
-func (a *sessionCreatorAdapter) CreateLocalSession(ctx context.Context, name, projectPath string) (*server.SessionCreateResult, error) {
-	sess, err := a.mgr.Create(ctx, projectPath)
+// to the caller-specified name. profile selects a named launch profile (empty
+// resolves to effective default). options is space-separated extra flags.
+func (a *sessionCreatorAdapter) CreateLocalSession(ctx context.Context, name, projectPath, profile, options string) (*server.SessionCreateResult, error) {
+	sess, err := a.mgr.CreateOpts(ctx, projectPath, profile, options)
 	if err != nil {
 		return nil, fmt.Errorf("create local session: %w", err)
 	}

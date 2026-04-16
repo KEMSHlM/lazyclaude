@@ -25,7 +25,9 @@ type SessionCreator interface {
 	// parentID is the ID of the parent PM session (empty means root-level).
 	CreateWorkerSession(ctx context.Context, name, prompt, projectRoot, profile, options, parentID string) (*SessionCreateResult, error)
 	// CreateLocalSession creates a plain session at projectPath.
-	CreateLocalSession(ctx context.Context, name, projectPath string) (*SessionCreateResult, error)
+	// profile selects a named launch profile (empty string resolves to the
+	// effective default). options is a space-separated list of extra flags.
+	CreateLocalSession(ctx context.Context, name, projectPath, profile, options string) (*SessionCreateResult, error)
 	// ResumeSession resumes a session by ID with a worktree name fallback
 	// for sessions that have been GC'd from state.json.
 	// parentID overrides the stored parent (empty preserves the existing value).
@@ -139,8 +141,7 @@ func (s *Server) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 		// profile, options, and parentID are worker-only; they are ignored for other session types.
 		result, err = sc.CreateWorkerSession(ctx, req.Name, req.Prompt, project.Path, req.Profile, req.Options, req.ParentID)
 	case "local":
-		// TODO(phase-2b): extend CreateLocalSession with profile/options when daemon route adds support.
-		result, err = sc.CreateLocalSession(ctx, req.Name, project.Path)
+		result, err = sc.CreateLocalSession(ctx, req.Name, project.Path, req.Profile, req.Options)
 	}
 	if err != nil {
 		s.log.Printf("msg/create: %v", err)
