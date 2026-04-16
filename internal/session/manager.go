@@ -353,11 +353,14 @@ func (m *Manager) createWorktreeSession(ctx context.Context, opts worktreeOpts) 
 	// Derive directory name from branch name (e.g. "feat/x" -> "feat-x").
 	dirName := DirNameFromBranch(opts.Name)
 
-	// Collision check: verify no existing worktree session maps to the same
-	// directory. Only check worktree sessions (those with IsWorktreePath) to
-	// avoid false positives from PM/plain sessions.
+	// Collision check: verify no existing worktree session in the SAME project
+	// maps to the same directory. Only check worktree sessions (those with
+	// IsWorktreePath) to avoid false positives from PM/plain sessions.
+	// Scoped to the same project root to prevent cross-project false positives.
+	cleanProject := filepath.Clean(opts.ProjectRoot)
 	for _, s := range m.store.All() {
-		if IsWorktreePath(s.Path) && filepath.Base(s.Path) == dirName && s.Name != opts.Name {
+		if IsWorktreePath(s.Path) && filepath.Base(s.Path) == dirName && s.Name != opts.Name &&
+			filepath.Clean(InferProjectRoot(s.Path)) == cleanProject {
 			return nil, fmt.Errorf("directory name collision: %q and %q both map to directory %q", opts.Name, s.Name, dirName)
 		}
 	}
@@ -455,6 +458,7 @@ func (m *Manager) CreateWorktreeOpts(ctx context.Context, opts WorktreeOpts) (*S
 		ParentID:    opts.ParentID,
 		Profile:     opts.Profile,
 		ExtraFlags:  splitOptions(opts.Options),
+		preCheck:    m.parentIDPreCheck(opts.ParentID, opts.ProjectRoot),
 	})
 }
 
@@ -995,6 +999,17 @@ func collectWorkerList(store *Store, projectRoot string) string {
 	return strings.Join(lines, "\n")
 }
 
+// parentIDPreCheck returns a preCheck callback that validates the given
+// parentID inside the manager lock. Returns nil (no-op) when parentID is empty.
+func (m *Manager) parentIDPreCheck(parentID, projectRoot string) func(*worktreeOpts) error {
+	if parentID == "" {
+		return nil
+	}
+	return func(_ *worktreeOpts) error {
+		return m.validateParentID(parentID, projectRoot)
+	}
+}
+
 // validateParentID checks that parentID is a valid parent PM session in the
 // given project. Returns nil if parentID is empty (root-level). Returns an
 // error if the parent does not exist, is not a PM, or belongs to a different
@@ -1245,6 +1260,7 @@ func (m *Manager) CreateWorkerSessionOpts(ctx context.Context, opts WorkerOpts) 
 		ParentID:    opts.ParentID,
 		Profile:     opts.Profile,
 		ExtraFlags:  splitOptions(opts.Options),
+		preCheck:    m.parentIDPreCheck(opts.ParentID, opts.ProjectRoot),
 	})
 }
 

@@ -820,6 +820,42 @@ func TestStore_MigrateV2ToV3_RoundTrip(t *testing.T) {
 	assert.Equal(t, 3, version, "saved format should be v3")
 }
 
+func TestStore_MigrateV2ToV3_PMRoleForced(t *testing.T) {
+	t.Parallel()
+	// v2 PM session with no role field (older state.json writers).
+	// Migration must force RolePM so FindPM() works.
+	v2Data := `{
+  "version": 2,
+  "projects": [{
+    "id": "proj-1",
+    "name": "legacy",
+    "path": "/home/user/legacy",
+    "created_at": "2024-06-01T00:00:00Z",
+    "updated_at": "2024-06-01T00:00:00Z",
+    "pm": {
+      "id": "pm-legacy",
+      "name": "pm",
+      "path": "/home/user/legacy",
+      "created_at": "2024-06-01T00:00:00Z",
+      "updated_at": "2024-06-01T00:00:00Z"
+    },
+    "sessions": []
+  }]
+}`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	require.NoError(t, os.WriteFile(path, []byte(v2Data), 0o600))
+
+	store := session.NewStore(path)
+	require.NoError(t, store.Load())
+
+	projects := store.Projects()
+	require.Len(t, projects, 1)
+	pm := projects[0].FindPM()
+	require.NotNil(t, pm, "migrated PM must be discoverable via FindPM even when v2 omitted role")
+	assert.Equal(t, session.RolePM, pm.Role)
+}
+
 func TestStore_MigrateV2ToV3_ParentIDPreserved(t *testing.T) {
 	t.Parallel()
 	// v2 format with a session that already has parent_id (hypothetical

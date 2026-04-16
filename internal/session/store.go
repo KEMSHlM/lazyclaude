@@ -146,7 +146,13 @@ func migrateV2ToV3(data []byte) ([]Project, error) {
 	for i, p := range sf.Projects {
 		var sessions []Session
 		if p.PM != nil {
-			sessions = append(sessions, *p.PM)
+			// Ensure the migrated PM session has RolePM set, even if the
+			// v2 file omitted the role field (older writers).
+			pm := *p.PM
+			if pm.Role == RoleNone {
+				pm.Role = RolePM
+			}
+			sessions = append(sessions, pm)
 		}
 		sessions = append(sessions, p.Sessions...)
 		projects[i] = Project{
