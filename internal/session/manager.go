@@ -1129,7 +1129,7 @@ func (m *Manager) CreatePMSession(ctx context.Context, projectRoot string) (*Ses
 //
 // Only local worktree/worker sessions can be resumed. Remote sessions and PM
 // sessions are rejected because they require different launch semantics.
-func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name string) (*Session, error) {
+func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name, parentID string) (*Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1165,13 +1165,19 @@ func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name string) (*
 		savedOld := *old
 		m.store.Remove(id)
 
+		// Use provided parentID if non-empty; otherwise preserve old session's parent.
+		effectiveParentID := old.ParentID
+		if parentID != "" {
+			effectiveParentID = parentID
+		}
+
 		result, launchErr := m.launchWorktreeSession(ctx, launchWorktreeArgs{
 			Name:        old.Name,
 			WtPath:      old.Path,
 			UserPrompt:  prompt,
 			ProjectRoot: projectRoot,
 			Role:        old.Role,
-			ParentID:    old.ParentID,
+			ParentID:    effectiveParentID,
 			SessionID:   id,
 			Resume:      true,
 			Profile:     old.Profile,
@@ -1226,6 +1232,7 @@ func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name string) (*
 		UserPrompt:  prompt,
 		ProjectRoot: projectRoot,
 		Role:        RoleWorker,
+		ParentID:    parentID,
 		SessionID:   id,
 		Resume:      true,
 	})
