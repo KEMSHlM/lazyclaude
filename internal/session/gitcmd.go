@@ -50,7 +50,12 @@ func (r *LocalRunner) MkdirAll(ctx context.Context, path string) error {
 
 // CreateWorktreeWithRunner creates a git worktree using the provided runner.
 // Replaces both createGitWorktree (local) and createGitWorktreeRemote (SSH).
-func CreateWorktreeWithRunner(ctx context.Context, runner GitRunner, projectRoot, wtPath, branch string) error {
+//
+// startPoint is an optional git commit/branch to base the new worktree on.
+// When empty, the worktree is created from the current HEAD (default git
+// behavior). When non-empty, it is appended as the start-point argument to
+// `git worktree add -b <branch> <path> <startPoint>`.
+func CreateWorktreeWithRunner(ctx context.Context, runner GitRunner, projectRoot, wtPath, branch, startPoint string) error {
 	// Verify projectRoot is a git repository.
 	if _, err := runner.Run(ctx, projectRoot, "git", "rev-parse", "--git-dir"); err != nil {
 		return fmt.Errorf("not a git repository: %s", projectRoot)
@@ -70,13 +75,23 @@ func CreateWorktreeWithRunner(ctx context.Context, runner GitRunner, projectRoot
 		return fmt.Errorf("create parent dir: %w", err)
 	}
 
+	// Reject flag-shaped startPoint values to prevent accidental flag injection.
+	if startPoint != "" && strings.HasPrefix(startPoint, "-") {
+		return fmt.Errorf("startPoint cannot start with '-': %s", startPoint)
+	}
+
 	// Try creating worktree with a new branch first.
-	out, err := runner.Run(ctx, projectRoot, "git", "worktree", "add", "-b", branch, wtPath)
+	newBranchArgs := []string{"git", "worktree", "add", "-b", branch, wtPath}
+	if startPoint != "" {
+		newBranchArgs = append(newBranchArgs, startPoint)
+	}
+	out, err := runner.Run(ctx, projectRoot, newBranchArgs...)
 	if err == nil {
 		return nil
 	}
 	// Branch may already exist — try without -b.
-	out2, err2 := runner.Run(ctx, projectRoot, "git", "worktree", "add", wtPath, branch)
+	existingArgs := []string{"git", "worktree", "add", wtPath, branch}
+	out2, err2 := runner.Run(ctx, projectRoot, existingArgs...)
 	if err2 != nil {
 		return fmt.Errorf("%s\n%s", strings.TrimSpace(string(out)), strings.TrimSpace(string(out2)))
 	}

@@ -136,7 +136,7 @@ func (a *App) setupGlobalKeybindings() error {
 		userPrompt := promptView.TextArea.GetContent()
 
 		// Validate before closing the dialog so errors appear inline.
-		if err := session.ValidateWorktreeName(branchName); err != nil {
+		if err := session.ValidateBranchName(branchName); err != nil {
 			a.showError(g, fmt.Sprintf("Error: %v", err))
 			return nil
 		}

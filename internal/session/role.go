@@ -71,7 +71,7 @@ func resolvePrompt(projectRoot, worktreePath, homeDir, filename, fallback string
 	var candidates []string
 
 	if worktreePath != "" {
-		branch := branchFromWorktreePath(projectRoot, worktreePath)
+		branch := dirNameFromWorktreePath(projectRoot, worktreePath)
 		if branch != "" {
 			candidate := filepath.Join(projectRoot, ".lazyclaude", "worktree", branch, ".lazyclaude", "prompts", filename)
 			if strings.HasPrefix(candidate, cleanRoot) {
@@ -105,10 +105,13 @@ func resolvePrompt(projectRoot, worktreePath, homeDir, filename, fallback string
 	return fallback
 }
 
-// branchFromWorktreePath extracts the branch name from a worktree path by
-// computing the path relative to {projectRoot}/{WorktreePathSegment}/.
-// Returns empty string if the path does not match the expected pattern.
-func branchFromWorktreePath(projectRoot, wtPath string) string {
+// dirNameFromWorktreePath extracts the directory name (not the branch name)
+// from a worktree path by computing the path relative to
+// {projectRoot}/{WorktreePathSegment}/. For hierarchical branches like
+// "feat/login", the directory is flattened to "feat-login", so this function
+// returns the flattened form. Returns empty string if the path does not match
+// the expected pattern.
+func dirNameFromWorktreePath(projectRoot, wtPath string) string {
 	base := filepath.Join(projectRoot, WorktreePathSegment) + string(os.PathSeparator)
 	if !strings.HasPrefix(wtPath, base) {
 		return ""
@@ -118,11 +121,11 @@ func branchFromWorktreePath(projectRoot, wtPath string) string {
 	if len(parts) == 0 || parts[0] == "" {
 		return ""
 	}
-	branch := parts[0]
-	if strings.Contains(branch, "..") {
+	dirName := parts[0]
+	if strings.Contains(dirName, "..") {
 		return ""
 	}
-	return branch
+	return dirName
 }
 
 // userHomeDir returns os.UserHomeDir() or empty string on error.
