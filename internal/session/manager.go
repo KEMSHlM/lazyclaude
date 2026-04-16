@@ -495,6 +495,7 @@ func (m *Manager) ResumeWorktreeOpts(ctx context.Context, opts ResumeOpts) (*Ses
 		SkipGitAdd:  true,
 		Profile:     opts.Profile,
 		ExtraFlags:  splitOptions(opts.Options),
+		preCheck:    m.parentIDPreCheck(opts.ParentID, opts.ProjectRoot),
 	})
 }
 
@@ -1168,6 +1169,9 @@ func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name, parentID 
 		// Use provided parentID if non-empty; otherwise preserve old session's parent.
 		effectiveParentID := old.ParentID
 		if parentID != "" {
+			if err := m.validateParentID(parentID, projectRoot); err != nil {
+				return nil, fmt.Errorf("validate parent: %w", err)
+			}
 			effectiveParentID = parentID
 		}
 
@@ -1224,6 +1228,13 @@ func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name, parentID 
 
 	if _, err := os.Stat(wtPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("worktree directory not found: %s", wtPath)
+	}
+
+	// Validate parentID before launching (GC'd session path has no preCheck).
+	if parentID != "" {
+		if err := m.validateParentID(parentID, projectRoot); err != nil {
+			return nil, fmt.Errorf("validate parent: %w", err)
+		}
 	}
 
 	return m.launchWorktreeSession(ctx, launchWorktreeArgs{
