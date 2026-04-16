@@ -313,8 +313,8 @@ type worktreeOpts struct {
 // ResumeWorktree, and CreateWorkerSession.
 func (m *Manager) createWorktreeSession(ctx context.Context, opts worktreeOpts) (*Session, error) {
 	if !opts.SkipGitAdd {
-		if err := ValidateWorktreeName(opts.Name); err != nil {
-			return nil, fmt.Errorf("invalid worktree name: %w", err)
+		if err := ValidateBranchName(opts.Name); err != nil {
+			return nil, fmt.Errorf("invalid branch name: %w", err)
 		}
 	}
 
@@ -337,13 +337,24 @@ func (m *Manager) createWorktreeSession(ctx context.Context, opts worktreeOpts) 
 		return nil, fmt.Errorf("worktree %q already exists", opts.Name)
 	}
 
+	// Derive directory name from branch name (e.g. "feat/x" -> "feat-x").
+	dirName := DirNameFromBranch(opts.Name)
+
+	// Collision check: verify no existing session maps to the same directory.
+	// This catches cases like "feat/x" and "feat-x" colliding.
+	for _, s := range m.store.All() {
+		if filepath.Base(s.Path) == dirName && s.Name != opts.Name {
+			return nil, fmt.Errorf("directory name collision: %q and %q both map to directory %q", opts.Name, s.Name, dirName)
+		}
+	}
+
 	wtPath := opts.WtPath
 	if wtPath == "" {
-		wtPath = WorktreePath(opts.ProjectRoot, opts.Name)
+		wtPath = WorktreePath(opts.ProjectRoot, dirName)
 	}
 
 	if !opts.SkipGitAdd {
-		if err := CreateWorktreeWithRunner(ctx, runner, opts.ProjectRoot, wtPath, opts.Name); err != nil {
+		if err := CreateWorktreeWithRunner(ctx, runner, opts.ProjectRoot, wtPath, opts.Name, ""); err != nil {
 			return nil, fmt.Errorf("git worktree: %w", err)
 		}
 	}
@@ -435,17 +446,40 @@ func (m *Manager) CreateWorktree(ctx context.Context, name, userPrompt, projectR
 // ResumeWorktreeOpts launches Claude Code in an existing worktree directory,
 // using the supplied profile and extra options. Unlike CreateWorktreeOpts, it
 // does not run `git worktree add`.
+//
+// The session Name is derived from the git branch checked out in the worktree
+// (via `git worktree list --porcelain`). This correctly recovers hierarchical
+// branch names like "feat/login" even though the directory is flattened to
+// "feat-login". Falls back to filepath.Base if no branch line is found.
 func (m *Manager) ResumeWorktreeOpts(ctx context.Context, opts ResumeOpts) (*Session, error) {
+	name := branchNameFromWorktreePath(ctx, opts.ProjectRoot, opts.WorktreePath)
+
 	return m.createWorktreeSession(ctx, worktreeOpts{
-		Name:        filepath.Base(opts.WorktreePath),
-		WtPath:      opts.WorktreePath,
-		UserPrompt:  opts.Prompt,
+		Name:       name,
+		WtPath:     opts.WorktreePath,
+		UserPrompt: opts.Prompt,
 		ProjectRoot: opts.ProjectRoot,
 		Role:        RoleWorker,
 		SkipGitAdd:  true,
 		Profile:     opts.Profile,
 		ExtraFlags:  splitOptions(opts.Options),
 	})
+}
+
+// branchNameFromWorktreePath resolves the branch name for a worktree path by
+// parsing `git worktree list --porcelain`. Falls back to filepath.Base(wtPath)
+// if the branch cannot be determined (e.g. detached HEAD or git unavailable).
+func branchNameFromWorktreePath(ctx context.Context, projectRoot, wtPath string) string {
+	runner := &LocalRunner{}
+	items, err := ListWorktreesWithRunner(ctx, runner, projectRoot)
+	if err == nil {
+		for _, item := range items {
+			if item.Path == wtPath && item.Branch != "" {
+				return item.Branch
+			}
+		}
+	}
+	return filepath.Base(wtPath)
 }
 
 // ResumeWorktree launches Claude Code in an existing worktree directory.

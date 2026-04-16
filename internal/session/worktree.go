@@ -24,6 +24,9 @@ func IsWorktreePath(path string) bool {
 
 // ValidateWorktreeName checks if a worktree name is valid.
 // Rejects empty, whitespace-only, path traversal, and git-invalid characters.
+//
+// Deprecated: Use ValidateBranchName, which permits "/" in branch names.
+// ValidateWorktreeName is retained for backward compatibility.
 func ValidateWorktreeName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("worktree name cannot be empty")
@@ -42,6 +45,69 @@ func ValidateWorktreeName(name string) error {
 	return nil
 }
 
+// ValidateBranchName checks if a branch name is valid according to git refname
+// rules. Unlike ValidateWorktreeName, "/" is permitted so that hierarchical
+// branch names like "feat/login" work. Rejected patterns:
+//   - empty or whitespace-only
+//   - "//", trailing "/", leading "/"
+//   - ".." anywhere (refname traversal)
+//   - "@{" (reflog syntax)
+//   - control characters (0x00-0x1F, 0x7F)
+//   - \, ~, ^, :, ?, *, [ (git-check-ref-format rejects these)
+//   - leading "-"
+//   - trailing ".lock"
+//   - path component starting with "." (e.g. ".hidden/x" or "a/.b")
+func ValidateBranchName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("branch name cannot be empty")
+	}
+	if strings.Contains(name, "//") {
+		return fmt.Errorf("branch name cannot contain %q", "//")
+	}
+	if strings.HasPrefix(name, "/") {
+		return fmt.Errorf("branch name cannot start with %q", "/")
+	}
+	if strings.HasSuffix(name, "/") {
+		return fmt.Errorf("branch name cannot end with %q", "/")
+	}
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("branch name cannot contain %q", "..")
+	}
+	if strings.Contains(name, "@{") {
+		return fmt.Errorf("branch name cannot contain %q", "@{")
+	}
+	for _, ch := range name {
+		if ch <= 0x1F || ch == 0x7F {
+			return fmt.Errorf("branch name cannot contain control characters")
+		}
+	}
+	for _, ch := range []string{"\\", "~", "^", ":", "?", "*", "["} {
+		if strings.Contains(name, ch) {
+			return fmt.Errorf("branch name cannot contain %q", ch)
+		}
+	}
+	if strings.HasPrefix(name, "-") {
+		return fmt.Errorf("branch name cannot start with '-'")
+	}
+	if strings.HasSuffix(name, ".lock") {
+		return fmt.Errorf("branch name cannot end with '.lock'")
+	}
+	// Reject path components starting with "." (e.g. ".hidden" or "a/.config").
+	for _, component := range strings.Split(name, "/") {
+		if strings.HasPrefix(component, ".") {
+			return fmt.Errorf("branch name component cannot start with '.'")
+		}
+	}
+	return nil
+}
+
+// DirNameFromBranch converts a branch name to a flattened directory name by
+// replacing "/" with "-". The result is safe for use as a filesystem directory
+// name under .lazyclaude/worktrees/.
+func DirNameFromBranch(branch string) string {
+	return strings.ReplaceAll(branch, "/", "-")
+}
+
 // BuildWorktreePrompt returns the system isolation instructions for a worktree.
 // This is appended to Claude's system prompt via --append-system-prompt.
 // The user's task description is passed separately as a positional argument.
@@ -51,9 +117,9 @@ func BuildWorktreePrompt(worktreePath, projectRoot string) string {
 
 // WorktreeInfo describes an existing git worktree under .lazyclaude/worktrees/.
 type WorktreeInfo struct {
-	Name   string // last path segment (e.g. "fix-popup")
+	Name   string // branch name (e.g. "feat/login"); falls back to filepath.Base(path) for detached HEAD
 	Path   string // full path to worktree directory
-	Branch string // branch name without refs/heads/ prefix
+	Branch string // branch name without refs/heads/ prefix (same as Name when branch line exists)
 }
 
 // ListWorktrees returns existing git worktrees under .lazyclaude/worktrees/.
@@ -83,8 +149,14 @@ func parseWorktreePorcelain(output string) []WorktreeInfo {
 		if path == "" || !IsWorktreePath(path) {
 			continue
 		}
+		// Use branch name for Name; fall back to directory base name for
+		// detached HEAD (no branch line in porcelain output).
+		name := branch
+		if name == "" {
+			name = filepath.Base(path)
+		}
 		items = append(items, WorktreeInfo{
-			Name:   filepath.Base(path),
+			Name:   name,
 			Path:   path,
 			Branch: branch,
 		})

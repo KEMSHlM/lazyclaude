@@ -81,7 +81,7 @@ func TestCreateWorktreeWithRunner_Local(t *testing.T) {
 	initGitRepoHelper(t, projectRoot)
 
 	wtPath := filepath.Join(projectRoot, ".lazyclaude", "worktrees", "test-wt")
-	err := CreateWorktreeWithRunner(ctx, r, projectRoot, wtPath, "test-wt")
+	err := CreateWorktreeWithRunner(ctx, r, projectRoot, wtPath, "test-wt", "")
 	require.NoError(t, err)
 
 	info, err := os.Stat(wtPath)
@@ -100,7 +100,7 @@ func TestCreateWorktreeWithRunner_Reuse(t *testing.T) {
 	wtPath := filepath.Join(projectRoot, ".lazyclaude", "worktrees", "reuse-me")
 	require.NoError(t, os.MkdirAll(wtPath, 0o755))
 
-	err := CreateWorktreeWithRunner(ctx, r, projectRoot, wtPath, "reuse-me")
+	err := CreateWorktreeWithRunner(ctx, r, projectRoot, wtPath, "reuse-me", "")
 	require.NoError(t, err)
 }
 
@@ -111,7 +111,7 @@ func TestCreateWorktreeWithRunner_NotGitRepo(t *testing.T) {
 
 	projectRoot := t.TempDir() // not a git repo
 	wtPath := filepath.Join(projectRoot, ".lazyclaude", "worktrees", "test")
-	err := CreateWorktreeWithRunner(ctx, r, projectRoot, wtPath, "test")
+	err := CreateWorktreeWithRunner(ctx, r, projectRoot, wtPath, "test", "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not a git repository")
 }
@@ -128,7 +128,7 @@ func TestListWorktreesWithRunner_Local(t *testing.T) {
 
 	// Create a worktree
 	wtPath := filepath.Join(projectRoot, ".lazyclaude", "worktrees", "list-test")
-	err := CreateWorktreeWithRunner(ctx, r, projectRoot, wtPath, "list-test")
+	err := CreateWorktreeWithRunner(ctx, r, projectRoot, wtPath, "list-test", "")
 	require.NoError(t, err)
 
 	items, err := ListWorktreesWithRunner(ctx, r, projectRoot)
