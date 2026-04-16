@@ -75,6 +75,11 @@ func CreateWorktreeWithRunner(ctx context.Context, runner GitRunner, projectRoot
 		return fmt.Errorf("create parent dir: %w", err)
 	}
 
+	// Reject flag-shaped startPoint values to prevent accidental flag injection.
+	if startPoint != "" && strings.HasPrefix(startPoint, "-") {
+		return fmt.Errorf("startPoint cannot start with '-': %s", startPoint)
+	}
+
 	// Try creating worktree with a new branch first.
 	newBranchArgs := []string{"git", "worktree", "add", "-b", branch, wtPath}
 	if startPoint != "" {

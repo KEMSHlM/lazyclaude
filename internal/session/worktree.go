@@ -52,10 +52,11 @@ func ValidateWorktreeName(name string) error {
 //   - "//", trailing "/", leading "/"
 //   - ".." anywhere (refname traversal)
 //   - "@{" (reflog syntax)
-//   - control characters (0x00-0x1F, 0x7F)
+//   - control characters (0x00-0x1F, 0x7F), space (0x20)
 //   - \, ~, ^, :, ?, *, [ (git-check-ref-format rejects these)
 //   - leading "-"
 //   - trailing ".lock"
+//   - trailing "."
 //   - path component starting with "." (e.g. ".hidden/x" or "a/.b")
 func ValidateBranchName(name string) error {
 	if strings.TrimSpace(name) == "" {
@@ -70,6 +71,9 @@ func ValidateBranchName(name string) error {
 	if strings.HasSuffix(name, "/") {
 		return fmt.Errorf("branch name cannot end with %q", "/")
 	}
+	if strings.HasSuffix(name, ".") {
+		return fmt.Errorf("branch name cannot end with '.'")
+	}
 	if strings.Contains(name, "..") {
 		return fmt.Errorf("branch name cannot contain %q", "..")
 	}
@@ -77,8 +81,8 @@ func ValidateBranchName(name string) error {
 		return fmt.Errorf("branch name cannot contain %q", "@{")
 	}
 	for _, ch := range name {
-		if ch <= 0x1F || ch == 0x7F {
-			return fmt.Errorf("branch name cannot contain control characters")
+		if ch <= 0x20 || ch == 0x7F {
+			return fmt.Errorf("branch name cannot contain control characters or spaces")
 		}
 	}
 	for _, ch := range []string{"\\", "~", "^", ":", "?", "*", "["} {

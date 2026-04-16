@@ -250,33 +250,36 @@ func TestValidateBranchName_Valid(t *testing.T) {
 func TestValidateBranchName_Invalid(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name string
-		want string
+		label string
+		name  string
+		want  string
 	}{
-		{"", "empty"},
-		{"   ", "empty"},
-		{"feat//x", "//"},
-		{"/leading", "start with \"/\""},
-		{"trailing/", "end with \"/\""},
-		{"foo..bar", ".."},
-		{"foo@{bar", "@{"},
-		{"foo\\bar", "\\"},
-		{"foo~bar", "~"},
-		{"foo^bar", "^"},
-		{"foo:bar", ":"},
-		{"foo?bar", "?"},
-		{"foo*bar", "*"},
-		{"foo[bar", "["},
-		{"-leading", "start with '-'"},
-		{"foo.lock", ".lock"},
-		{".hidden", "start with '.'"},
-		{"feat/.hidden", "start with '.'"},
-		{"a/.config/b", "start with '.'"},
-		{"feat/\x00bad", "control"},
-		{"feat/\x1fbad", "control"},
+		{"empty", "", "empty"},
+		{"whitespace-only", "   ", "empty"},
+		{"double-slash", "feat//x", "//"},
+		{"leading-slash", "/leading", "start with \"/\""},
+		{"trailing-slash", "trailing/", "end with \"/\""},
+		{"trailing-dot", "feat/x.", "end with '.'"},
+		{"double-dot", "foo..bar", ".."},
+		{"reflog-syntax", "foo@{bar", "@{"},
+		{"backslash", "foo\\bar", "\\"},
+		{"tilde", "foo~bar", "~"},
+		{"caret", "foo^bar", "^"},
+		{"colon", "foo:bar", ":"},
+		{"question-mark", "foo?bar", "?"},
+		{"asterisk", "foo*bar", "*"},
+		{"bracket", "foo[bar", "["},
+		{"leading-dash", "-leading", "start with '-'"},
+		{"dot-lock-suffix", "foo.lock", ".lock"},
+		{"dot-component", ".hidden", "start with '.'"},
+		{"dot-component-nested", "feat/.hidden", "start with '.'"},
+		{"dot-component-deep", "a/.config/b", "start with '.'"},
+		{"control-null", "feat/\x00bad", "control"},
+		{"control-0x1f", "feat/\x1fbad", "control"},
+		{"space", "feat bar", "control characters or spaces"},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.label, func(t *testing.T) {
 			t.Parallel()
 			err := ValidateBranchName(tc.name)
 			if err == nil {

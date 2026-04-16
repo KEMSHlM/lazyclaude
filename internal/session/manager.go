@@ -1082,19 +1082,22 @@ func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name string) (*
 		return nil, fmt.Errorf("session not found: %s (specify --name for GC'd sessions)", id)
 	}
 
-	// Validate worktree name to prevent path traversal.
-	if err := ValidateWorktreeName(name); err != nil {
-		return nil, fmt.Errorf("invalid worktree name: %w", err)
+	// Validate as a branch name (permits "/") to prevent path traversal.
+	if err := ValidateBranchName(name); err != nil {
+		return nil, fmt.Errorf("invalid branch name: %w", err)
 	}
+
+	// Flatten branch name to directory name (e.g. "feat/login" -> "feat-login").
+	dirName := DirNameFromBranch(name)
 
 	// Find the project that owns this worktree by checking which project's
 	// worktree directory contains a matching subdirectory.
-	projectRoot, err := m.findProjectRootForWorktree(name)
+	projectRoot, err := m.findProjectRootForWorktree(dirName)
 	if err != nil {
 		return nil, err
 	}
 
-	wtPath := filepath.Join(projectRoot, ".lazyclaude", "worktrees", name)
+	wtPath := filepath.Join(projectRoot, ".lazyclaude", "worktrees", dirName)
 
 	// Defense-in-depth: verify the resolved path is inside the expected directory.
 	expectedPrefix := filepath.Join(projectRoot, ".lazyclaude", "worktrees") + string(filepath.Separator)
@@ -1118,20 +1121,20 @@ func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name string) (*
 }
 
 // findProjectRootForWorktree searches registered projects for one whose
-// worktree directory contains a subdirectory matching name. Returns the
+// worktree directory contains a subdirectory matching dirName. Returns the
 // project root path or an error if no match is found.
-func (m *Manager) findProjectRootForWorktree(name string) (string, error) {
+func (m *Manager) findProjectRootForWorktree(dirName string) (string, error) {
 	projects := m.store.Projects()
 	if len(projects) == 0 {
 		return "", fmt.Errorf("no projects registered")
 	}
 	for _, p := range projects {
-		candidate := filepath.Join(p.Path, ".lazyclaude", "worktrees", name)
+		candidate := filepath.Join(p.Path, ".lazyclaude", "worktrees", dirName)
 		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 			return p.Path, nil
 		}
 	}
-	return "", fmt.Errorf("no project found containing worktree %q", name)
+	return "", fmt.Errorf("no project found containing worktree %q", dirName)
 }
 
 // CreateWorkerSessionOpts creates a git worktree and launches Claude Code
