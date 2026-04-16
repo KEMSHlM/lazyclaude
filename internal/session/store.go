@@ -204,8 +204,7 @@ func (s *Store) Load() error {
 	if err := json.Unmarshal(data, &peek); err == nil && peek.Version == 2 {
 		projects, migErr := migrateV2ToV3(data)
 		if migErr != nil {
-			s.projects = nil
-			return nil
+			return fmt.Errorf("migrate v2→v3 state: %w", migErr)
 		}
 		s.projects = projects
 		for i := range s.projects {
@@ -423,15 +422,18 @@ func (s *Store) copyProjectLocked(i int) *Project {
 	return &p
 }
 
-// FindProjectByPath returns a project by its root path.
+// FindProjectByPath returns a deep copy of the project matching the given root
+// path. Uses filepath.Clean for comparison to handle trailing slashes and
+// redundant path components. The returned value does not share pointers with
+// store internals.
 func (s *Store) FindProjectByPath(path string) *Project {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	cleanPath := filepath.Clean(path)
 	for i := range s.projects {
-		if s.projects[i].Path == path {
-			p := s.projects[i]
-			return &p
+		if filepath.Clean(s.projects[i].Path) == cleanPath {
+			return s.copyProjectLocked(i)
 		}
 	}
 	return nil

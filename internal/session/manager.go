@@ -309,6 +309,11 @@ type worktreeOpts struct {
 	SkipGitAdd  bool   // true for ResumeWorktree (directory already exists)
 	Profile     string
 	ExtraFlags  []string
+	// preCheck is an optional callback executed inside the manager lock,
+	// before any git operations. Receives a pointer to the opts so it can
+	// modify fields (e.g. StartPoint). Used by CreatePMSessionOpts to check
+	// for duplicate root PMs and validate parent IDs atomically.
+	preCheck func(opts *worktreeOpts) error
 }
 
 // createWorktreeSession is the shared implementation for CreateWorktree,
@@ -334,6 +339,12 @@ func (m *Manager) createWorktreeSession(ctx context.Context, opts worktreeOpts) 
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if opts.preCheck != nil {
+		if err := opts.preCheck(&opts); err != nil {
+			return nil, err
+		}
+	}
 
 	if existing := m.store.FindByName(opts.Name); existing != nil {
 		return nil, fmt.Errorf("worktree %q already exists", opts.Name)
@@ -1038,41 +1049,49 @@ func (m *Manager) CreatePMSessionOpts(ctx context.Context, opts PMOpts) (*Sessio
 
 	projectRoot := opts.ProjectRoot
 
-	if opts.ParentID == "" {
-		// Root PM: check no existing root PM for this project.
-		if pm := findRootPM(m.store, projectRoot); pm != nil {
-			return nil, fmt.Errorf("pm session already exists for %q", projectRoot)
-		}
-	} else {
-		// Sub-PM: validate parent and inherit projectRoot.
-		if err := m.validateParentID(opts.ParentID, projectRoot); err != nil {
-			return nil, fmt.Errorf("validate parent: %w", err)
-		}
-	}
+	parentID := opts.ParentID
 
-	// Determine start point: for sub-PM, branch from parent's current branch.
-	var startPoint string
-	if opts.ParentID != "" {
-		parent := m.store.FindByID(opts.ParentID)
-		if parent != nil {
-			runner := &LocalRunner{}
-			branch, err := branchForSession(ctx, runner, parent)
-			if err == nil {
-				startPoint = branch
+	// preCheck runs inside the manager lock (in createWorktreeSession) so the
+	// duplicate-PM check, parent validation, and start-point resolution are
+	// atomic with session creation — no TOCTOU gap.
+	preCheck := func(wtOpts *worktreeOpts) error {
+		if parentID == "" {
+			// Root PM: check no existing root PM for this project.
+			if pm := findRootPM(m.store, projectRoot); pm != nil {
+				return fmt.Errorf("pm session already exists for %q", projectRoot)
+			}
+		} else {
+			// Sub-PM: validate parent.
+			if err := m.validateParentID(parentID, projectRoot); err != nil {
+				return fmt.Errorf("validate parent: %w", err)
 			}
 		}
+
+		// Determine start point: for sub-PM, branch from parent's current branch.
+		if parentID != "" {
+			parent := m.store.FindByID(parentID)
+			if parent != nil {
+				runner := &LocalRunner{}
+				branch, err := branchForSession(ctx, runner, parent)
+				if err != nil {
+					return fmt.Errorf("determine parent PM branch: %w", err)
+				}
+				wtOpts.StartPoint = branch
+			}
+		}
+		return nil
 	}
 
-	m.log.Info("createPMSession", "name", name, "path", projectRoot, "parentID", opts.ParentID)
+	m.log.Info("createPMSession", "name", name, "path", projectRoot, "parentID", parentID)
 
 	return m.createWorktreeSession(ctx, worktreeOpts{
 		Name:        name,
 		ProjectRoot: projectRoot,
 		Role:        RolePM,
-		ParentID:    opts.ParentID,
-		StartPoint:  startPoint,
+		ParentID:    parentID,
 		Profile:     opts.Profile,
 		ExtraFlags:  splitOptions(opts.Options),
+		preCheck:    preCheck,
 	})
 }
 
@@ -1137,6 +1156,7 @@ func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name string) (*
 			UserPrompt:  prompt,
 			ProjectRoot: projectRoot,
 			Role:        old.Role,
+			ParentID:    old.ParentID,
 			SessionID:   id,
 			Resume:      true,
 			Profile:     old.Profile,
