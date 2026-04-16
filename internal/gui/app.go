@@ -75,13 +75,14 @@ type SessionProvider interface {
 
 	// Profile-aware create methods (Phase 2a). profile is the profile name
 	// (empty string resolves to the effective default). options is a
-	// space-separated list of extra CLI arguments.
+	// space-separated list of extra CLI arguments. parentID is the parent
+	// PM session ID (empty = root-level).
 	// Remote sessions fall back to the non-opts behaviour until Phase 2b.
-	CreateWithOpts(path, profile, options string) error
-	CreateAtPaneCWDWithOpts(profile, options string) error
-	CreatePMSessionWithOpts(projectRoot, profile, options string) error
-	CreateWorktreeWithOpts(name, prompt, projectRoot, profile, options string) error
-	ResumeWorktreeWithOpts(worktreePath, prompt, projectRoot, profile, options string) error
+	CreateWithOpts(path, profile, options, parentID string) error
+	CreateAtPaneCWDWithOpts(profile, options, parentID string) error
+	CreatePMSessionWithOpts(projectRoot, profile, options, parentID string) error
+	CreateWorktreeWithOpts(name, prompt, projectRoot, profile, options, parentID string) error
+	ResumeWorktreeWithOpts(worktreePath, prompt, projectRoot, profile, options, parentID string) error
 
 	// ProfileItems returns the current list of chooser items for the profile
 	// selector, re-reading the user config and syncing it into the session
@@ -109,6 +110,8 @@ type SessionItem struct {
 	Activity model.ActivityState // 4-stage activity state (Running, NeedsInput, Idle, Error)
 	ToolName string              // last tool name; only meaningful when Activity == Running or NeedsInput
 	Role       string              // "pm", "worker", or "" (empty = regular session)
+	ParentID   string              // parent PM session ID (empty = root-level)
+	Expanded   bool                // PM node expand/collapse state (default: true)
 }
 
 // PreviewResult holds captured pane content and cursor position.
@@ -158,6 +161,7 @@ type App struct {
 	cachedSessionItems []SessionItem            // cached session list; refreshed asynchronously
 	sessionRefreshing  bool                     // true while a background refresh is in flight
 	errorMsg           string                   // currently displayed error message
+	pmCollapsed        map[string]bool          // PM session IDs that are collapsed (children hidden)
 }
 
 
@@ -175,6 +179,7 @@ func newApp(mode AppMode, g *gocui.Gui, enableMouse bool) (*App, error) {
 		mcpState:    NewMCPState(),
 		panelTabs:      make(map[string]int),
 		windowActivity: make(map[string]WindowActivityEntry),
+		pmCollapsed:    make(map[string]bool),
 	}
 	app.scroll = NewScrollState()
 	app.fullscreen = NewFullScreenState(app.preview)

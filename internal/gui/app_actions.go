@@ -32,7 +32,7 @@ func (a *App) refreshTreeNodes() {
 		a.cachedNodes = nil
 		return
 	}
-	a.cachedNodes = BuildTreeNodes(a.sessions.Projects())
+	a.cachedNodes = BuildTreeNodes(a.sessions.Projects(), a.pmCollapsed)
 }
 
 // treeNodes returns the tree node list, filtered when search is active.
@@ -62,39 +62,82 @@ func (a *App) currentSession() *SessionItem {
 
 func (a *App) ToggleProjectExpanded() {
 	node := a.currentNode()
-	if node == nil || node.Kind != ProjectNode {
+	if node == nil {
 		return
 	}
-	a.sessions.ToggleProjectExpanded(node.ProjectID)
+	switch node.Kind {
+	case ProjectNode:
+		a.sessions.ToggleProjectExpanded(node.ProjectID)
+	case SessionNode:
+		if node.Session != nil && node.Session.Role == "pm" {
+			a.togglePMCollapsed(node.Session.ID)
+		} else {
+			return
+		}
+	default:
+		return
+	}
 	// Rebuild cache immediately so cursor bounds are correct.
 	a.refreshTreeNodes()
 }
 
 func (a *App) CollapseProject() {
 	node := a.currentNode()
-	if node == nil || node.Kind != ProjectNode {
+	if node == nil {
 		return
 	}
-	if node.Project != nil && node.Project.Expanded {
-		a.sessions.ToggleProjectExpanded(node.ProjectID)
-		a.refreshTreeNodes()
+	switch node.Kind {
+	case ProjectNode:
+		if node.Project != nil && node.Project.Expanded {
+			a.sessions.ToggleProjectExpanded(node.ProjectID)
+			a.refreshTreeNodes()
+		}
+	case SessionNode:
+		if node.Session != nil && node.Session.Role == "pm" && node.Session.Expanded {
+			a.togglePMCollapsed(node.Session.ID)
+			a.refreshTreeNodes()
+		}
 	}
 }
 
 func (a *App) ExpandProject() {
 	node := a.currentNode()
-	if node == nil || node.Kind != ProjectNode {
+	if node == nil {
 		return
 	}
-	if node.Project != nil && !node.Project.Expanded {
-		a.sessions.ToggleProjectExpanded(node.ProjectID)
-		a.refreshTreeNodes()
+	switch node.Kind {
+	case ProjectNode:
+		if node.Project != nil && !node.Project.Expanded {
+			a.sessions.ToggleProjectExpanded(node.ProjectID)
+			a.refreshTreeNodes()
+		}
+	case SessionNode:
+		if node.Session != nil && node.Session.Role == "pm" && !node.Session.Expanded {
+			a.togglePMCollapsed(node.Session.ID)
+			a.refreshTreeNodes()
+		}
 	}
 }
 
 func (a *App) CursorIsProject() bool {
 	node := a.currentNode()
-	return node != nil && node.Kind == ProjectNode
+	if node == nil {
+		return false
+	}
+	if node.Kind == ProjectNode {
+		return true
+	}
+	// PM nodes also act as expandable containers.
+	return node.Kind == SessionNode && node.Session != nil && node.Session.Role == "pm"
+}
+
+// togglePMCollapsed toggles the collapsed state of a PM session node.
+func (a *App) togglePMCollapsed(sessionID string) {
+	if a.pmCollapsed[sessionID] {
+		delete(a.pmCollapsed, sessionID)
+	} else {
+		a.pmCollapsed[sessionID] = true
+	}
 }
 
 // --- Session cursor ---
@@ -503,6 +546,36 @@ func (a *App) currentSessionHost() (string, bool) {
 	return "", false
 }
 
+// --- Parent resolution ---
+
+// resolveParentFromCursor returns the parent PM session ID to use when
+// creating new sessions from the current cursor position.
+//
+// Rules:
+//   - ProjectNode: "" (root-level, no parent PM)
+//   - SessionNode with Role=="pm": the PM's own ID (new session becomes child of this PM)
+//   - SessionNode otherwise: the session's ParentID (new session becomes sibling)
+//   - No node: "" (fallback)
+func (a *App) resolveParentFromCursor() string {
+	node := a.currentNode()
+	if node == nil {
+		return ""
+	}
+	switch node.Kind {
+	case ProjectNode:
+		return ""
+	case SessionNode:
+		if node.Session == nil {
+			return ""
+		}
+		if node.Session.Role == "pm" {
+			return node.Session.ID
+		}
+		return node.Session.ParentID
+	}
+	return ""
+}
+
 // --- Session operations ---
 
 func (a *App) CreateSession() {
@@ -510,8 +583,10 @@ func (a *App) CreateSession() {
 		return
 	}
 	localPath := a.currentProjectRoot()
-	debugLog("CreateSession: path=%q", localPath)
+	parentID := a.resolveParentFromCursor()
+	debugLog("CreateSession: path=%q parentID=%q", localPath, parentID)
 	a.gui.Update(func(g *gocui.Gui) error {
+		a.dialog.ParentID = parentID
 		if !a.showProfileDialog(g, "session", localPath) {
 			a.showError(g, "Error: could not open profile dialog")
 		}
@@ -527,8 +602,10 @@ func (a *App) CreateSessionAtCWD() {
 	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
-	debugLog("CreateSessionAtCWD")
+	parentID := a.resolveParentFromCursor()
+	debugLog("CreateSessionAtCWD: parentID=%q", parentID)
 	a.gui.Update(func(g *gocui.Gui) error {
+		a.dialog.ParentID = parentID
 		if !a.showProfileDialog(g, "session_cwd", "") {
 			a.showError(g, "Error: could not open profile dialog")
 		}
@@ -687,8 +764,10 @@ func (a *App) StartPMSession() {
 		return
 	}
 	projectRoot := a.currentProjectRoot()
-	debugLog("StartPMSession: projectRoot=%q", projectRoot)
+	parentID := a.resolveParentFromCursor()
+	debugLog("StartPMSession: projectRoot=%q parentID=%q", projectRoot, parentID)
 	a.gui.Update(func(g *gocui.Gui) error {
+		a.dialog.ParentID = parentID
 		if !a.showProfileDialog(g, "pm_session", projectRoot) {
 			a.showError(g, "Error: could not open profile dialog")
 		}
@@ -700,7 +779,9 @@ func (a *App) StartWorktreeInput() {
 	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
+	parentID := a.resolveParentFromCursor()
 	a.gui.Update(func(g *gocui.Gui) error {
+		a.dialog.ParentID = parentID
 		if !a.showWorktreeDialog(g) {
 			a.showError(g, "Error: could not open worktree dialog")
 		}
@@ -713,7 +794,9 @@ func (a *App) SelectWorktree() {
 		return
 	}
 	projectRoot := a.currentProjectRoot()
-	debugLog("SelectWorktree: projectRoot=%q", projectRoot)
+	parentID := a.resolveParentFromCursor()
+	debugLog("SelectWorktree: projectRoot=%q parentID=%q", projectRoot, parentID)
+	a.dialog.ParentID = parentID
 	go func() {
 		items, err := a.sessions.ListWorktrees(projectRoot)
 		a.gui.Update(func(g *gocui.Gui) error {

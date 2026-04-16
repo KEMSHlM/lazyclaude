@@ -219,8 +219,15 @@ func (s *SessionCommandService) completeRemoteCreate(placeholderID string, targe
 	s.triggerGUIUpdate()
 }
 
-// CreateWithOpts creates a new local session with profile and options.
-func (s *SessionCommandService) CreateWithOpts(target OperationTarget, profile, options string) error {
+// CreateWithOpts creates a new local session with profile, options, and parentID.
+//
+// NOTE: parentID is accepted for interface consistency but is not forwarded to
+// the session manager. Plain sessions and worktree/PM sessions will receive
+// parentID support once the session model is extended (P2-A+B).
+func (s *SessionCommandService) CreateWithOpts(target OperationTarget, profile, options, parentID string) error {
+	if parentID != "" {
+		debugLog("CreateWithOpts: parentID=%q accepted but not forwarded (session model does not support parenting yet)", parentID)
+	}
 	// Local only: remote falls back to Create (handled at guiCompositeAdapter level).
 	path, err := resolveLocalPath(target.ProjectRoot)
 	if err != nil {
@@ -239,8 +246,14 @@ func (s *SessionCommandService) CreateWorktree(target OperationTarget, name, pro
 	return s.cp.CreateWorktree(name, prompt, target.ProjectRoot, target.Host)
 }
 
-// CreateWorktreeWithOpts creates a worktree session with profile and options.
-func (s *SessionCommandService) CreateWorktreeWithOpts(target OperationTarget, name, prompt, profile, options string) error {
+// CreateWorktreeWithOpts creates a worktree session with profile, options, and parentID.
+//
+// NOTE: parentID is accepted for interface consistency but not forwarded until
+// WorktreeOpts gains a ParentID field (P2-A+B).
+func (s *SessionCommandService) CreateWorktreeWithOpts(target OperationTarget, name, prompt, profile, options, parentID string) error {
+	if parentID != "" {
+		debugLog("CreateWorktreeWithOpts: parentID=%q accepted but not forwarded yet", parentID)
+	}
 	// Local only: remote falls back to CreateWorktree (handled at guiCompositeAdapter level).
 	path, err := resolveLocalPath(target.ProjectRoot)
 	if err != nil {
@@ -265,8 +278,14 @@ func (s *SessionCommandService) ResumeWorktree(target OperationTarget, wtPath, p
 	return s.cp.ResumeWorktree(wtPath, prompt, target.ProjectRoot, target.Host)
 }
 
-// ResumeWorktreeWithOpts resumes a worktree session with profile and options.
-func (s *SessionCommandService) ResumeWorktreeWithOpts(target OperationTarget, wtPath, prompt, profile, options string) error {
+// ResumeWorktreeWithOpts resumes a worktree session with profile, options, and parentID.
+//
+// NOTE: parentID is accepted for interface consistency but not forwarded until
+// ResumeOpts gains a ParentID field (P2-A+B).
+func (s *SessionCommandService) ResumeWorktreeWithOpts(target OperationTarget, wtPath, prompt, profile, options, parentID string) error {
+	if parentID != "" {
+		debugLog("ResumeWorktreeWithOpts: parentID=%q accepted but not forwarded yet", parentID)
+	}
 	// Local only: remote falls back to ResumeWorktree (handled at guiCompositeAdapter level).
 	path, err := resolveLocalPath(target.ProjectRoot)
 	if err != nil {
@@ -320,9 +339,12 @@ func (s *SessionCommandService) CreatePMSession(target OperationTarget) error {
 	return err
 }
 
-// CreatePMSessionWithOpts creates a PM session with profile and options.
-func (s *SessionCommandService) CreatePMSessionWithOpts(target OperationTarget, profile, options string) error {
-	debugLog("SessionCommandService.CreatePMSessionWithOpts: projectRoot=%q profile=%q", target.ProjectRoot, profile)
+// CreatePMSessionWithOpts creates a PM session with profile, options, and parentID.
+//
+// NOTE: parentID is accepted for interface consistency but not forwarded until
+// PMOpts gains a ParentID field (P2-A+B).
+func (s *SessionCommandService) CreatePMSessionWithOpts(target OperationTarget, profile, options, parentID string) error {
+	debugLog("SessionCommandService.CreatePMSessionWithOpts: projectRoot=%q profile=%q parentID=%q", target.ProjectRoot, profile, parentID)
 	// Local only: remote falls back to CreatePMSession (handled at guiCompositeAdapter level).
 	path, err := resolveLocalPath(target.ProjectRoot)
 	if err != nil {

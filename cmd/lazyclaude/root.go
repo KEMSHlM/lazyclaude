@@ -567,26 +567,20 @@ func pendingWindowSet(notifications []*model.ToolNotification) map[string]bool {
 func buildProjectItems(projects []session.Project, pending map[string]bool, windowActivity map[string]gui.WindowActivityEntry) []gui.ProjectItem {
 	items := make([]gui.ProjectItem, len(projects))
 	for i, p := range projects {
-		var pm *gui.SessionItem
+		// Fold PM + Sessions into a unified GUI slice for recursive tree display.
+		sessions := make([]gui.SessionItem, 0, 1+len(p.Sessions))
 		if p.PM != nil {
-			si := sessionToItem(*p.PM, pending, windowActivity)
-			pm = &si
+			sessions = append(sessions, sessionToItem(*p.PM, pending, windowActivity))
 		}
-		sessions := make([]gui.SessionItem, len(p.Sessions))
-		for j, s := range p.Sessions {
-			sessions[j] = sessionToItem(s, pending, windowActivity)
+		for _, s := range p.Sessions {
+			sessions = append(sessions, sessionToItem(s, pending, windowActivity))
 		}
 		// Derive host from any session (all sessions in a project share the same host).
 		host := ""
-		if pm != nil && pm.Host != "" {
-			host = pm.Host
-		}
-		if host == "" {
-			for _, s := range sessions {
-				if s.Host != "" {
-					host = s.Host
-					break
-				}
+		for _, s := range sessions {
+			if s.Host != "" {
+				host = s.Host
+				break
 			}
 		}
 		items[i] = gui.ProjectItem{
@@ -595,7 +589,6 @@ func buildProjectItems(projects []session.Project, pending map[string]bool, wind
 			Path:     p.Path,
 			Host:     host,
 			Expanded: p.Expanded,
-			PM:       pm,
 			Sessions: sessions,
 		}
 	}
@@ -632,6 +625,8 @@ func sessionToItem(s session.Session, pending map[string]bool, windowActivity ma
 		Activity:   activity,
 		ToolName:   toolName,
 		Role:       string(s.Role),
+		// ParentID: populated once session model supports it (P2-A+B).
+		Expanded: true, // PM nodes default to expanded
 	}
 }
 

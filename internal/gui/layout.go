@@ -473,11 +473,7 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 		fmt.Fprintln(v, "")
 		fmt.Fprintf(v, "  %s%s%s\n", presentation.Bold, node.Project.Name, presentation.Reset)
 		fmt.Fprintf(v, "  %s%s%s\n", presentation.Dim, node.Project.Path, presentation.Reset)
-		sessCount := len(node.Project.Sessions)
-		if node.Project.PM != nil {
-			sessCount++
-		}
-		fmt.Fprintf(v, "  %s%d session(s)%s\n", presentation.Dim, sessCount, presentation.Reset)
+		fmt.Fprintf(v, "  %s%d session(s)%s\n", presentation.Dim, len(node.Project.Sessions), presentation.Reset)
 		return
 	}
 
