@@ -8,20 +8,18 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Use LAZYCLAUDE_BINARY from lazyclaude.tmux if set; otherwise resolve here.
+# Does NOT fall back to repo-local bin/ to avoid running stale worktree binaries.
 if [ -z "$LAZYCLAUDE_BINARY" ]; then
     LAZYCLAUDE_BINARY="$(command -v lazyclaude 2>/dev/null || true)"
     if [ -z "$LAZYCLAUDE_BINARY" ] && [ -x "$HOME/.local/bin/lazyclaude" ]; then
         LAZYCLAUDE_BINARY="$HOME/.local/bin/lazyclaude"
     fi
-    if [ -z "$LAZYCLAUDE_BINARY" ]; then
-        LAZYCLAUDE_BINARY="${SCRIPT_DIR}/../bin/lazyclaude"
-    fi
 fi
 BINARY="$LAZYCLAUDE_BINARY"
 
-if [ ! -x "$BINARY" ]; then
+if [ -z "$BINARY" ] || [ ! -x "$BINARY" ]; then
     echo "lazyclaude: binary not found" >&2
-    echo "Run 'make install PREFIX=~/.local' or 'make build' in $(dirname "$SCRIPT_DIR")" >&2
+    echo "Run 'make install PREFIX=~/.local' in $(dirname "$SCRIPT_DIR")" >&2
     exit 1
 fi
 

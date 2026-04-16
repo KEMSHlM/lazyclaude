@@ -10,23 +10,15 @@
 CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 LAUNCHER="${CURRENT_DIR}/scripts/lazyclaude-launch.sh"
 
-# Prefer the installed binary on PATH; fall back to common install dirs, then repo-local bin/.
+# Prefer the installed binary on PATH; fall back to ~/.local/bin.
+# Does NOT fall back to repo-local bin/ to avoid running stale worktree binaries.
 BINARY="$(command -v lazyclaude 2>/dev/null || true)"
 if [ -z "$BINARY" ] && [ -x "$HOME/.local/bin/lazyclaude" ]; then
     BINARY="$HOME/.local/bin/lazyclaude"
 fi
-if [ -z "$BINARY" ]; then
-    BINARY="${CURRENT_DIR}/bin/lazyclaude"
-fi
-
-if [ ! -x "$BINARY" ]; then
-    echo "lazyclaude: binary not found, building..." >&2
-    (cd "$CURRENT_DIR" && make build) >&2
-    BINARY="${CURRENT_DIR}/bin/lazyclaude"
-    if [ ! -x "$BINARY" ]; then
-        echo "lazyclaude: build failed (is Go installed?)" >&2
-        exit 1
-    fi
+if [ -z "$BINARY" ] || [ ! -x "$BINARY" ]; then
+    echo "lazyclaude: binary not found. Run 'make install PREFIX=~/.local' in ${CURRENT_DIR}" >&2
+    exit 1
 fi
 
 # Detect user's tmux socket.
