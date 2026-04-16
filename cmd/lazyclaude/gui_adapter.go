@@ -24,18 +24,18 @@ import (
 // daemon/CompositeProvider.
 type sessionCommander interface {
 	Create(target OperationTarget) error
-	CreateWithOpts(target OperationTarget, profile, options string) error
+	CreateWithOpts(target OperationTarget, profile, options, parentID string) error
 	Delete(id string) error
 	Rename(id, newName string) error
 	LaunchLazygit(target OperationTarget) error
 	CreateWorktree(target OperationTarget, name, prompt string) error
-	CreateWorktreeWithOpts(target OperationTarget, name, prompt, profile, options string) error
+	CreateWorktreeWithOpts(target OperationTarget, name, prompt, profile, options, parentID string) error
 	ResumeWorktree(target OperationTarget, wtPath, prompt string) error
-	ResumeWorktreeWithOpts(target OperationTarget, wtPath, prompt, profile, options string) error
+	ResumeWorktreeWithOpts(target OperationTarget, wtPath, prompt, profile, options, parentID string) error
 	ResumeSession(target OperationTarget, id, prompt, name string) error
 	ListWorktrees(target OperationTarget) ([]gui.WorktreeInfo, error)
 	CreatePMSession(target OperationTarget) error
-	CreatePMSessionWithOpts(target OperationTarget, profile, options string) error
+	CreatePMSessionWithOpts(target OperationTarget, profile, options, parentID string) error
 	CreateWorkerSession(target OperationTarget, name, prompt string) error
 }
 
@@ -172,13 +172,13 @@ func (a *guiCompositeAdapter) Create(path string) error {
 	return a.commands.Create(a.resolveTarget(path))
 }
 
-func (a *guiCompositeAdapter) CreateWithOpts(path, profile, options string) error {
+func (a *guiCompositeAdapter) CreateWithOpts(path, profile, options, parentID string) error {
 	host := a.resolveHost()
 	if host != "" {
 		// Remote: fall back to non-opts path (Phase 2b adds remote profile support).
 		return a.commands.Create(a.resolveTarget(path))
 	}
-	return a.commands.CreateWithOpts(a.resolveTarget(path), profile, options)
+	return a.commands.CreateWithOpts(a.resolveTarget(path), profile, options, parentID)
 }
 
 // CreateAtPaneCWD implements the N key: create a session in the lazyclaude
@@ -193,7 +193,7 @@ func (a *guiCompositeAdapter) CreateAtPaneCWD() error {
 	})
 }
 
-func (a *guiCompositeAdapter) CreateAtPaneCWDWithOpts(profile, options string) error {
+func (a *guiCompositeAdapter) CreateAtPaneCWDWithOpts(profile, options, parentID string) error {
 	target := OperationTarget{
 		Host:        a.readPendingHost(),
 		ProjectRoot: ".",
@@ -202,7 +202,7 @@ func (a *guiCompositeAdapter) CreateAtPaneCWDWithOpts(profile, options string) e
 		// Remote: fall back to non-opts path (Phase 2b adds remote profile support).
 		return a.commands.Create(target)
 	}
-	return a.commands.CreateWithOpts(target, profile, options)
+	return a.commands.CreateWithOpts(target, profile, options, parentID)
 }
 
 // resolveRemotePath maps a local path to the remote daemon's CWD when
@@ -340,26 +340,26 @@ func (a *guiCompositeAdapter) CreateWorktree(name, prompt, projectRoot string) e
 	return a.commands.CreateWorktree(a.resolveTarget(projectRoot), name, prompt)
 }
 
-func (a *guiCompositeAdapter) CreateWorktreeWithOpts(name, prompt, projectRoot, profile, options string) error {
+func (a *guiCompositeAdapter) CreateWorktreeWithOpts(name, prompt, projectRoot, profile, options, parentID string) error {
 	target := a.resolveTarget(projectRoot)
 	if target.Host != "" {
 		// Remote: fall back to non-opts path (Phase 2b adds remote profile support).
 		return a.commands.CreateWorktree(target, name, prompt)
 	}
-	return a.commands.CreateWorktreeWithOpts(target, name, prompt, profile, options)
+	return a.commands.CreateWorktreeWithOpts(target, name, prompt, profile, options, parentID)
 }
 
 func (a *guiCompositeAdapter) ResumeWorktree(worktreePath, prompt, projectRoot string) error {
 	return a.commands.ResumeWorktree(a.resolveTarget(projectRoot), worktreePath, prompt)
 }
 
-func (a *guiCompositeAdapter) ResumeWorktreeWithOpts(worktreePath, prompt, projectRoot, profile, options string) error {
+func (a *guiCompositeAdapter) ResumeWorktreeWithOpts(worktreePath, prompt, projectRoot, profile, options, parentID string) error {
 	target := a.resolveTarget(projectRoot)
 	if target.Host != "" {
 		// Remote: fall back to non-opts path (Phase 2b adds remote profile support).
 		return a.commands.ResumeWorktree(target, worktreePath, prompt)
 	}
-	return a.commands.ResumeWorktreeWithOpts(target, worktreePath, prompt, profile, options)
+	return a.commands.ResumeWorktreeWithOpts(target, worktreePath, prompt, profile, options, parentID)
 }
 
 func (a *guiCompositeAdapter) ResumeSession(id, prompt, name, projectRoot string) error {
@@ -374,13 +374,13 @@ func (a *guiCompositeAdapter) CreatePMSession(projectRoot string) error {
 	return a.commands.CreatePMSession(a.resolveTarget(projectRoot))
 }
 
-func (a *guiCompositeAdapter) CreatePMSessionWithOpts(projectRoot, profile, options string) error {
+func (a *guiCompositeAdapter) CreatePMSessionWithOpts(projectRoot, profile, options, parentID string) error {
 	target := a.resolveTarget(projectRoot)
 	if target.Host != "" {
 		// Remote: fall back to non-opts path (Phase 2b adds remote profile support).
 		return a.commands.CreatePMSession(target)
 	}
-	return a.commands.CreatePMSessionWithOpts(target, profile, options)
+	return a.commands.CreatePMSessionWithOpts(target, profile, options, parentID)
 }
 
 func (a *guiCompositeAdapter) CreateWorkerSession(name, prompt, projectRoot string) error {

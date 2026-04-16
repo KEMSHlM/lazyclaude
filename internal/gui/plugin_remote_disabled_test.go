@@ -224,15 +224,15 @@ func (m *miniSessionProvider) SendChoice(_ string, _ Choice) error              
 func (m *miniSessionProvider) AttachSession(_ string) error                           { return nil }
 func (m *miniSessionProvider) LaunchLazygit(_ string) error                           { return nil }
 func (m *miniSessionProvider) CreateWorktree(_, _, _ string) error                    { return nil }
-func (m *miniSessionProvider) CreateWorktreeWithOpts(_, _, _, _, _ string) error      { return nil }
+func (m *miniSessionProvider) CreateWorktreeWithOpts(_, _, _, _, _, _ string) error   { return nil }
 func (m *miniSessionProvider) ResumeWorktree(_, _, _ string) error                    { return nil }
-func (m *miniSessionProvider) ResumeWorktreeWithOpts(_, _, _, _, _ string) error      { return nil }
+func (m *miniSessionProvider) ResumeWorktreeWithOpts(_, _, _, _, _, _ string) error   { return nil }
 func (m *miniSessionProvider) ListWorktrees(_ string) ([]WorktreeInfo, error)         { return nil, nil }
 func (m *miniSessionProvider) CreatePMSession(_ string) error                         { return nil }
-func (m *miniSessionProvider) CreatePMSessionWithOpts(_, _, _ string) error           { return nil }
+func (m *miniSessionProvider) CreatePMSessionWithOpts(_, _, _, _ string) error        { return nil }
 func (m *miniSessionProvider) CreateWorkerSession(_, _, _ string) error               { return nil }
-func (m *miniSessionProvider) CreateWithOpts(_, _, _ string) error                    { return nil }
-func (m *miniSessionProvider) CreateAtPaneCWDWithOpts(_, _ string) error              { return nil }
+func (m *miniSessionProvider) CreateWithOpts(_, _, _, _ string) error                 { return nil }
+func (m *miniSessionProvider) CreateAtPaneCWDWithOpts(_, _, _ string) error           { return nil }
 func (m *miniSessionProvider) ProfileItems() []chooser.Item                           { return nil }
 
 // --- test helpers ---

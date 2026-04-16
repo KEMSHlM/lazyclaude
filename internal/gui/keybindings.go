@@ -151,13 +151,14 @@ func (a *App) setupGlobalKeybindings() error {
 		}
 
 		projectRoot := a.currentProjectRoot()
+		parentID := a.dialog.ParentID
 		a.closeWorktreeDialog(g)
 
 		go func() {
 			if a.sessions == nil {
 				return
 			}
-			err := a.sessions.CreateWorktreeWithOpts(branchName, userPrompt, projectRoot, selectedProfile, options)
+			err := a.sessions.CreateWorktreeWithOpts(branchName, userPrompt, projectRoot, selectedProfile, options, parentID)
 			if err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
 					a.showError(g, fmt.Sprintf("Error: %v", err))
@@ -328,6 +329,7 @@ func (a *App) setupGlobalKeybindings() error {
 
 	if err := a.gui.SetKeybinding("worktree-chooser", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		a.closeWorktreeChooser(g)
+		a.dialog.ParentID = "" // true cancel: clear inherited parent
 		return nil
 	}); err != nil {
 		return err
@@ -352,13 +354,14 @@ func (a *App) setupGlobalKeybindings() error {
 			options = strings.TrimSpace(optView.TextArea.GetContent())
 		}
 
+		parentID := a.dialog.ParentID
 		a.closeWorktreeResumePrompt(g)
 
 		go func() {
 			if a.sessions == nil {
 				return
 			}
-			err := a.sessions.ResumeWorktreeWithOpts(wtPath, userPrompt, projectRoot, selectedProfile, options)
+			err := a.sessions.ResumeWorktreeWithOpts(wtPath, userPrompt, projectRoot, selectedProfile, options, parentID)
 			if err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
 					a.showError(g, fmt.Sprintf("Error: %v", err))
@@ -474,6 +477,7 @@ func (a *App) setupGlobalKeybindings() error {
 
 		kind := a.dialog.ProfileConfirmKind
 		sessionPath := a.dialog.ProfileSessionPath
+		parentID := a.dialog.ParentID
 		a.closeProfileDialog(g)
 
 		switch kind {
@@ -482,7 +486,7 @@ func (a *App) setupGlobalKeybindings() error {
 				if a.sessions == nil {
 					return
 				}
-				err := a.sessions.CreateWithOpts(sessionPath, selectedProfile, options)
+				err := a.sessions.CreateWithOpts(sessionPath, selectedProfile, options, parentID)
 				a.gui.Update(func(g *gocui.Gui) error {
 					if err != nil {
 						a.showError(g, fmt.Sprintf("Error: %v", err))
@@ -498,7 +502,7 @@ func (a *App) setupGlobalKeybindings() error {
 				if a.sessions == nil {
 					return
 				}
-				err := a.sessions.CreateAtPaneCWDWithOpts(selectedProfile, options)
+				err := a.sessions.CreateAtPaneCWDWithOpts(selectedProfile, options, parentID)
 				a.gui.Update(func(g *gocui.Gui) error {
 					if err != nil {
 						a.showError(g, fmt.Sprintf("Error: %v", err))
@@ -514,7 +518,7 @@ func (a *App) setupGlobalKeybindings() error {
 				if a.sessions == nil {
 					return
 				}
-				err := a.sessions.CreatePMSessionWithOpts(sessionPath, selectedProfile, options)
+				err := a.sessions.CreatePMSessionWithOpts(sessionPath, selectedProfile, options, parentID)
 				a.gui.Update(func(g *gocui.Gui) error {
 					if err != nil {
 						a.showError(g, fmt.Sprintf("Error: %v", err))

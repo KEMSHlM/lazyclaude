@@ -86,9 +86,19 @@ func renderTree(v *gocui.View, nodes []TreeNode, cursor int) {
 			fmt.Fprintf(v, " %s %s\n", expandIcon, projectLabel)
 
 		case SessionNode:
+			indent := strings.Repeat("  ", node.Depth)
 			name := sessionDisplayName(node.Session)
 			icon := sessionStatusIcon(node.Session)
-			fmt.Fprintf(v, "   %-18s%s\n", name, icon)
+			// PM nodes with children get an expand/collapse indicator.
+			if node.Session.Role == "pm" {
+				pmIcon := presentation.IconPMExpanded
+				if !node.Session.Expanded {
+					pmIcon = presentation.IconPMCollapsed
+				}
+				fmt.Fprintf(v, " %s%s %s%s\n", indent, pmIcon, name, icon)
+			} else {
+				fmt.Fprintf(v, " %s  %s%s\n", indent, name, icon)
+			}
 		}
 	}
 

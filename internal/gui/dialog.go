@@ -59,6 +59,7 @@ type DialogState struct {
 	OptionsText        string         // options text input value (kept across re-renders)
 	ProfileConfirmKind string         // "session" | "session_cwd" | "pm_session"
 	ProfileSessionPath string         // path passed to the session-creation call on confirm
+	ParentID           string         // parent PM session ID for hierarchical creation
 
 	// Remote profile error dialog state (DialogRemoteProfileError)
 	RemoteProfileErrorMsg string // formatted error message shown to the user

@@ -473,11 +473,7 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 		fmt.Fprintln(v, "")
 		fmt.Fprintf(v, "  %s%s%s\n", presentation.Bold, node.Project.Name, presentation.Reset)
 		fmt.Fprintf(v, "  %s%s%s\n", presentation.Dim, node.Project.Path, presentation.Reset)
-		sessCount := len(node.Project.Sessions)
-		if node.Project.PM != nil {
-			sessCount++
-		}
-		fmt.Fprintf(v, "  %s%d session(s)%s\n", presentation.Dim, sessCount, presentation.Reset)
+		fmt.Fprintf(v, "  %s%d session(s)%s\n", presentation.Dim, len(node.Project.Sessions), presentation.Reset)
 		return
 	}
 
@@ -942,6 +938,7 @@ func (a *App) closeWorktreeDialog(g *gocui.Gui) {
 	a.dialog.ActiveField = ""
 	a.dialog.ProfileItems = nil
 	a.dialog.OptionsText = ""
+	a.dialog.ParentID = ""
 	g.DeleteView("worktree-branch")
 	g.DeleteView("worktree-prompt")
 	g.DeleteView("worktree-profile-chooser")
@@ -998,6 +995,9 @@ func (a *App) showWorktreeChooser(g *gocui.Gui, items []WorktreeInfo) bool {
 func (a *App) closeWorktreeChooser(g *gocui.Gui) {
 	a.dialog.Kind = DialogNone
 	a.dialog.WorktreeItems = nil
+	// NOTE: ParentID is NOT cleared here because Enter transitions into
+	// the next dialog (worktree create or resume) which needs it.
+	// Esc clears ParentID via the keybinding handler.
 	g.DeleteView("worktree-chooser")
 	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
 		_ = err
@@ -1176,6 +1176,7 @@ func (a *App) closeWorktreeResumePrompt(g *gocui.Gui) {
 	a.dialog.SelectedPath = ""
 	a.dialog.ProfileItems = nil
 	a.dialog.OptionsText = ""
+	a.dialog.ParentID = ""
 	g.DeleteView("worktree-resume-prompt")
 	g.DeleteView("worktree-resume-hint")
 	g.DeleteView("worktree-resume-profile-chooser")
@@ -1332,6 +1333,7 @@ func (a *App) closeProfileDialog(g *gocui.Gui) {
 	a.dialog.OptionsText = ""
 	a.dialog.ProfileConfirmKind = ""
 	a.dialog.ProfileSessionPath = ""
+	a.dialog.ParentID = ""
 	g.DeleteView("profile-chooser")
 	g.DeleteView("profile-options")
 	g.DeleteView("profile-hint")

@@ -15,8 +15,7 @@ type ProjectItem struct {
 	Path     string
 	Host     string // SSH hostname derived from sessions (empty for local projects)
 	Expanded bool
-	PM       *SessionItem
-	Sessions []SessionItem
+	Sessions []SessionItem // all sessions (PMs + workers); hierarchy is via ParentID
 }
 
 // TreeNode is a single row in the flattened tree view.
@@ -26,12 +25,19 @@ type TreeNode struct {
 	ProjectID string
 	Project   *ProjectItem // non-nil for ProjectNode
 	Session   *SessionItem // non-nil for SessionNode
+	Depth     int          // nesting depth (0 = project/root session, 1+ = children)
 }
 
-// BuildTreeNodes flattens projects into a list of TreeNodes.
-// Collapsed projects show only the project row; expanded projects
-// also include PM and session rows.
-func BuildTreeNodes(projects []ProjectItem) []TreeNode {
+// BuildTreeNodes flattens projects into a list of TreeNodes with
+// ParentID-based recursive hierarchy. pmCollapsed contains session IDs
+// of PM nodes that are currently collapsed (children hidden).
+//
+// Tree structure:
+//
+//	Project → root sessions (ParentID=="") at depth 1
+//	  PM node → children (ParentID==PM.ID) at depth 2+
+//	    Worker / sub-PM → recursively deeper
+func BuildTreeNodes(projects []ProjectItem, pmCollapsed map[string]bool) []TreeNode {
 	var nodes []TreeNode
 	for i := range projects {
 		p := &projects[i]
@@ -39,24 +45,63 @@ func BuildTreeNodes(projects []ProjectItem) []TreeNode {
 			Kind:      ProjectNode,
 			ProjectID: p.ID,
 			Project:   p,
+			Depth:     0,
 		})
 		if !p.Expanded {
 			continue
 		}
-		if p.PM != nil {
-			nodes = append(nodes, TreeNode{
-				Kind:      SessionNode,
-				ProjectID: p.ID,
-				Session:   p.PM,
-			})
-		}
+		// Build session ID set and index by ParentID for efficient child lookup.
+		// Orphans (sessions whose ParentID references a missing session) are
+		// promoted to root level in their original slice order to keep the
+		// tree deterministic across rebuilds.
+		sessionIDs := make(map[string]bool, len(p.Sessions))
 		for j := range p.Sessions {
-			nodes = append(nodes, TreeNode{
-				Kind:      SessionNode,
-				ProjectID: p.ID,
-				Session:   &p.Sessions[j],
-			})
+			sessionIDs[p.Sessions[j].ID] = true
 		}
+		childrenOf := make(map[string][]*SessionItem)
+		for j := range p.Sessions {
+			s := &p.Sessions[j]
+			pid := s.ParentID
+			if pid != "" && !sessionIDs[pid] {
+				pid = "" // reparent orphan to root
+			}
+			childrenOf[pid] = append(childrenOf[pid], s)
+		}
+		// Recursively append root sessions (ParentID=="") and their subtrees.
+		appendSessionTree(&nodes, p.ID, childrenOf, "", 1, pmCollapsed)
 	}
 	return nodes
+}
+
+// maxTreeDepth caps recursion to prevent stack overflow from cyclic ParentID data.
+const maxTreeDepth = 20
+
+// appendSessionTree recursively appends sessions and their children to the
+// node list. parentID identifies which children to add at this level;
+// depth tracks the nesting for indentation.
+func appendSessionTree(nodes *[]TreeNode, projectID string, childrenOf map[string][]*SessionItem, parentID string, depth int, pmCollapsed map[string]bool) {
+	if depth > maxTreeDepth {
+		return
+	}
+	children := childrenOf[parentID]
+	for _, s := range children {
+		// Heap-allocate a copy to avoid mutating the caller-owned slice element.
+		item := new(SessionItem)
+		*item = *s
+		if item.Role == "pm" {
+			item.Expanded = !pmCollapsed[item.ID]
+		}
+		*nodes = append(*nodes, TreeNode{
+			Kind:      SessionNode,
+			ProjectID: projectID,
+			Session:   item,
+			Depth:     depth,
+		})
+		// PM nodes can be collapsed to hide their children.
+		if s.Role == "pm" && pmCollapsed[s.ID] {
+			continue
+		}
+		// Recurse into children of this session (PM or otherwise).
+		appendSessionTree(nodes, projectID, childrenOf, s.ID, depth+1, pmCollapsed)
+	}
 }
