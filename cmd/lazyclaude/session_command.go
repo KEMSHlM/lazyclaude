@@ -222,8 +222,9 @@ func (s *SessionCommandService) completeRemoteCreate(placeholderID string, targe
 // CreateWithOpts creates a new local session with profile, options, and parentID.
 //
 // NOTE: parentID is accepted for interface consistency but is not forwarded to
-// the session manager. Plain sessions and worktree/PM sessions will receive
-// parentID support once the session model is extended (P2-A+B).
+// the session manager. The session model does not yet support hierarchical
+// parenting. parentID forwarding will be added once the Opts structs gain
+// a ParentID field (P2-A+B).
 func (s *SessionCommandService) CreateWithOpts(target OperationTarget, profile, options, parentID string) error {
 	if parentID != "" {
 		debugLog("CreateWithOpts: parentID=%q accepted but not forwarded (session model does not support parenting yet)", parentID)

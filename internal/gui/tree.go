@@ -68,14 +68,15 @@ func BuildTreeNodes(projects []ProjectItem, pmCollapsed map[string]bool) []TreeN
 func appendSessionTree(nodes *[]TreeNode, projectID string, childrenOf map[string][]*SessionItem, parentID string, depth int, pmCollapsed map[string]bool) {
 	children := childrenOf[parentID]
 	for _, s := range children {
-		// Set Expanded state for PM nodes based on pmCollapsed map.
-		if s.Role == "pm" {
-			s.Expanded = !pmCollapsed[s.ID]
+		// Copy before mutating to avoid changing the caller-owned slice element.
+		item := *s
+		if item.Role == "pm" {
+			item.Expanded = !pmCollapsed[item.ID]
 		}
 		*nodes = append(*nodes, TreeNode{
 			Kind:      SessionNode,
 			ProjectID: projectID,
-			Session:   s,
+			Session:   &item,
 			Depth:     depth,
 		})
 		// PM nodes can be collapsed to hide their children.

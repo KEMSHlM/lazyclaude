@@ -796,10 +796,10 @@ func (a *App) SelectWorktree() {
 	projectRoot := a.currentProjectRoot()
 	parentID := a.resolveParentFromCursor()
 	debugLog("SelectWorktree: projectRoot=%q parentID=%q", projectRoot, parentID)
-	a.dialog.ParentID = parentID
 	go func() {
 		items, err := a.sessions.ListWorktrees(projectRoot)
 		a.gui.Update(func(g *gocui.Gui) error {
+			a.dialog.ParentID = parentID
 			if err != nil {
 				a.showError(g, fmt.Sprintf("Error: %v", err))
 				return nil
